@@ -1,0 +1,45 @@
+# === Secrets / credentials — NEVER commit ===
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+**/access_token*
+**/api_secret*
+kite_creds*
+config.local.*
+
+# === Rust (hot plane) ===
+target/
+# (Cargo.lock IS committed for application binaries)
+
+# === Python (cognition plane) ===
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# === Market data / stores — do not commit ===
+data/
+questdb-data/
+*.parquet
+*.duckdb
+*.db
+*.csv.gz
+instruments*.csv
+
+# === Logs ===
+logs/
+*.log
+
+# === OS / editor ===
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
