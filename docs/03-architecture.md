@@ -172,3 +172,4 @@ The sandbox serves *demo* data and may not enable historical, so it can't realis
 7. **Risk checks may reject an entry but never an exit.** Reducing exposure is unconditionally allowed.
 8. **The order rate stays under 10/s** — Kite's per-client-ID rate limit and, separately, SEBI's per-segment threshold above which a strategy needs formal registration (doc 02 §9.3). **Every order carries an `algo_id` regardless.**
 9. **Every event on the bus carries a `schema_version`**, and every stream has a bounded length.
+10. **No data is ever destroyed** (D-15). Rejected ticks, superseded reference data, and stale records are retained and tiered, never dropped, sampled, or overwritten. Redis trimming is permitted only where a durable copy provably landed first. The sole exception is deletion required by the Kite ToS on termination.

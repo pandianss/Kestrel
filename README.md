@@ -126,4 +126,6 @@ The project codename is **Kestrel**. Conventions to apply as code lands:
 
 > **2. Entries are a judgement problem; exits are a reliability problem.** A late entry costs an opportunity. A late exit costs money without bound. So entries get the LLM and exits get deterministic code — and no exit ever waits on a model response.
 
-> **3. Every borrowed fact has an expiry date.** This design rests on broker limits, regulation, and pricing that are all someone else's to change. Facts carry sources and verification dates, and being confidently wrong about one is treated as a defect, not a detail.
+> **3. No data is ever destroyed.** Rejected ticks, superseded reference data, prior versions of an adjusted price series — all retained and tiered, never dropped or overwritten. Keeping everything forever costs about $24/year, which is less than the broker subscription; there is no cost worth deleting data to control. The one exception is deletion the Kite licence requires on termination.
+
+> **4. Every borrowed fact has an expiry date.** This design rests on broker limits, regulation, and pricing that are all someone else's to change. Facts carry sources and verification dates, and being confidently wrong about one is treated as a defect, not a detail.

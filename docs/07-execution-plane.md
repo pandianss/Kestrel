@@ -318,7 +318,8 @@ Without this, every MIS strategy's paper results are optimistic by an amount tha
 ## 5. P&L ledger & position state
 - Authoritative record of paper positions, realized/unrealized P&L, and per-trade attribution back to the agent chain that produced it.
 - Marked-to-market continuously from the live cache.
-- Persisted (crash-safe) and exposed to Grafana. **Redis is transport; the ledger is the record** (doc 06 §2.1).
+- **Append-only and crash-safe**, exposed to Grafana. **Redis is transport; the ledger is the record** (doc 06 §2.1).
+  - **Corrections are new entries, never in-place edits** (D-15). A reconciliation adjustment, a cost-model restatement, or a mis-booked fill is appended with a reference to what it supersedes. The ledger is therefore replayable to any point in time, and *"what did we believe our position was at 14:32?"* is answerable — which is exactly the question a post-mortem asks.
 - **Reconciliation:** paper position state is periodically reconciled against the ledger; any mismatch trips the kill-switch.
 - Tracks `margin_used` / `margin_available` alongside P&L (§3.1).
 

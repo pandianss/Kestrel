@@ -90,4 +90,7 @@ For reviewers unfamiliar with Kite/Indian-market vocabulary or this project's te
 - **Info-source agents** — news pipeline + macro/central-bank agent; independent of Kite limits.
 - **Instruction-source boundary** — the rule that external content is data, never instructions.
 - **Paper-first** — validate with a simulated execution backend before any real money.
+- **No destruction of data** — the invariant that data is added to, tiered, or (only where an external obligation requires) deleted with a recorded reason. Never dropped, sampled away, aged out, or overwritten (doc 13, D-15).
+- **Append-only** — a store where corrections are new entries referencing what they supersede, never in-place edits. Makes "what did we believe at time T?" answerable. Applies to the P&L ledger.
+- **Tiering** — moving older data to cheaper storage classes. Replaces *retention* in this design, because nothing expires.
 - **Facts with an expiry date** — externally-owned facts (broker limits, pricing, regulation) that carry a source and verification date because they change without notice. See the README.

@@ -134,7 +134,8 @@ The EWMA above is undefined at the first tick of the day, and **naïvely carryin
 ⚠️ $\kappa_{\text{open}}$, $N_{\text{warm}}$, and $\theta_{\text{floor}}$ are asserted starting values. Fit them against replayed opening sessions, including known gap days, before trusting the filter at the open.
 
 **Design rules:**
-- **Rejected ticks are never silently dropped** — they are counted, sampled into a quarantine log, and surfaced as a metric. A rising reject rate is a feed-health signal.
+- **Every rejected tick is persisted in full** with its reject reason and the state that triggered it — not sampled, not counted-and-discarded (D-15). Reject rate is also surfaced as a metric, since a rising rate is a feed-health signal.
+  - *Why keep them all:* today's "obvious bad print" is tomorrow's evidence that the filter is mis-tuned. The reject set is the only record of what the system chose **not** to act on, and it is the first thing you need when a fill looks wrong. It is also small — rejects are by construction a tiny fraction of ~9,000 events/sec.
 - **The filter is fail-closed for execution, fail-open for observation.** A suspicious tick still reaches the cache tagged `suspect` (so screeners see the market moving) but cannot trigger a simulated fill.
 - **The thresholds are data, not code** — they live in config so they can be tuned from replay without a rebuild.
 - **Observe-only mode is the default for anything unproven.** Any new or unfitted check ships tagging-but-not-rejecting until replay shows its reject set is genuinely bad prints.
@@ -170,7 +171,9 @@ Redis is in-memory and is the contract boundary between the two planes. Both fac
 | `kestrel:orders` | Intents and acks | ~50k entries | **Also persisted to the ledger** — Redis is transport, not the record |
 | `kestrel:news` / `kestrel:macro` | Info-source events | ~1 day | Low volume; a day of context is useful |
 
-**Rule:** *no stream is the system of record.* Anything that must survive is written to QuestDB or the ledger before or alongside the `XADD`. Trimming must never be able to lose data we needed.
+**Rule:** *no stream is the system of record.* Anything that must survive is written to QuestDB or the ledger **before** the `XADD`, not alongside it. Trimming must never be able to lose data we needed.
+
+⚠️ **Under D-15 this ordering is enforced, not assumed.** Trimming is the one place the design deliberately discards bytes, so it is permitted **only** where the durable write provably completed first. Concretely: the ingester acknowledges the QuestDB write before publishing to the stream, and **a trim event while any consumer group is lagging raises an alert** — that combination is the signature of actual data loss rather than routine trimming.
 
 **Sizing the caps.** From §6: ~9,000 events/sec at target volume. At ~200 bytes per tick-derived event, a 500k-entry `kestrel:ticks` cap is **~100 MB and ~1 minute of history** — enough for a consumer to survive a GC pause or a brief restart, not enough to mask a real outage. Total across all streams should sit well under half of host RAM, leaving headroom for the last-value cache (9,000 instruments × ~1 KB ≈ 9 MB, trivial) and Redis's own overhead.
 
@@ -261,7 +264,7 @@ Over a 6.25-hour session: **≈ 5.2 GB/day raw**, before framing overhead and be
 
 **What this tells us:**
 - **Bandwidth is a non-issue.** ~2 Mbps sustained is nothing for an ap-south-1 host, even with a large burst multiple at the open. This closes the former Gap G-16 to a Phase 1 confirmation rather than an open design question.
-- **Storage is a retention decision, not a scaling problem.** ~5 GB/day raw is roughly **1.2 TB/year uncompressed**; columnar time-series compression should cut that substantially. The question is not "can we store it" but "how long do we keep full depth" — full depth is the expensive part and the least reusable.
+- **Storage is a *tiering* decision, not a retention one** (D-15). ~5 GB/day raw is roughly **1.3 TB/year uncompressed**; Parquet+zstd typically cuts that ~8×. At ~160 GB/year compressed, **keeping everything forever costs about $24/year on S3 Standard-IA** — a third of the Kite subscription and 0.3% of the lean LLM line. There is no cost worth deleting data to control. The question is therefore not "how long do we keep full depth" but "which tier does it live in after N days."
 - **The real risk is write *rate*, not write *volume*.** 9,000 updates/sec sustained into QuestDB is the thing to measure, and it remains a 🔴 gap (G-03).
 
 **Still to measure in Phase 1 (do not assume):** actual tick cadence and open-bell burst multiple, QuestDB sustained ingest at that rate, on-disk compression ratio, and the resulting retention policy.

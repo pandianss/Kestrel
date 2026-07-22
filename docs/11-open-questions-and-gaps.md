@@ -22,7 +22,7 @@
 | [G-18](#g-18) | 🔴 | OPEN | Risk | Risk limits — **starting envelope proposed** | Phase 3 |
 | [G-28](#g-28) | 🔴 | **IN DESIGN** | Execution | **No exit path existed** — Position Manager added | Phase 3 |
 | [G-29](#g-29) | 🔴 | **IN DESIGN** | Risk | **No margin model** — approach specified, values open | Phase 3 |
-| [G-04](#g-04) | 🟠 | **IN DESIGN** | Data | Storage — estimated ~5 GB/day; retention policy open | Phase 1 |
+| [G-04](#g-04) | 🟡 | **IN DESIGN** | Data | Storage — **tiering, not retention** (D-15); ~$24/yr forever | Phase 1 |
 | [G-05](#g-05) | 🟠 | **CLOSED** | Regulatory | Multiple API keys — **largely not viable** | — |
 | [G-06](#g-06) | 🟠 | **IN DESIGN** | Data | Promotion policy — **priority + hysteresis specified** | Tune Phase 1 |
 | [G-07](#g-07) | 🟠 | **ACCEPTED** | Ops | Distributed limiting — moot while single-host | If we split |
@@ -260,7 +260,9 @@ Assumed, not measured. 9,000 instruments in mixed modes is a large sustained wri
 
 *Estimated 2026-07-22:* ~5.2 GB/day raw (~1.2 TB/year) uncompressed, per doc 06 §6.
 
-*What remains open:* actual compression ratio, and the **retention policy** — specifically how long to keep Full-mode depth, which is the bulk of the volume and the least reusable. Measure in Phase 1, then decide.
+*What remains open:* actual compression ratio and the **tiering** schedule — which storage class Full-mode depth lands in after N days, and when.
+
+✅ **Retention is no longer a question** (D-15): nothing is deleted. At ~8× compression, keeping everything forever costs roughly **$24/year** on S3 Standard-IA — a third of the Kite subscription. Deleting data to save that while spending thousands on tokens would be incoherent. Measure the compression ratio in Phase 1 and set the tiering thresholds; the volume never leaves.
 
 <a id="g-06"></a>
 
@@ -292,6 +294,10 @@ The *mechanism* was defined; the *policy* was not. Now specified in doc 06 §1.3
 3. **Pre-2019 intraday adjustment is inconsistent** (adjusted intraday from 2015 for active contracts only). Long intraday backtests crossing that boundary are unreliable — start after 2019 or treat earlier intraday as unadjusted.
 
 *Direction:* build a dividend/rights/demerger adjustment layer on top of Kite's split/bonus handling, plus an adjustment-detection step in backfill that invalidates derived data. Neither is optional.
+
+⚠️ **D-15 adds a third requirement: capture the series *before* adjustments land.** Kite rewrites historical candles **in place** on the ex-date, so the unadjusted prints are destroyed from our view permanently — by a third party, without notice. Under "no destruction of data" that is not something to accept: backfill must snapshot the as-of series and record the adjustment event, so **both the pre- and post-adjustment views survive**.
+
+Same shape as G-43 — free to capture now, impossible to reconstruct later. And it is the only case in the design where the destroying party is someone else.
 
 ⚠️ *Still to confirm:* exact SOD adjustment timing, and whether `continuous=1` stitched F&O series carry their own adjustment behaviour.
 
@@ -920,6 +926,11 @@ Reframed direction:
   - **Materially revised:** G-02 (framework now live — moved to Phase 0), G-17 (upgraded 🟡→🟠).
   - **Progressed to IN DESIGN:** G-04, G-09, G-19, G-23.
   - **Structural:** added the register-at-a-glance table, `Status` field, and the [REVIEWING.md](REVIEWING.md) entry template.
+- **2026-07-22 (eleventh pass)** — **D-15: no destruction of data** (owner directive) established as an architectural invariant (doc 03 §6, item 10).
+  - **Affordable, which is what makes it a rule:** ~160 GB/yr compressed ≈ **$24/yr on S3 Standard-IA** — a third of the Kite subscription, 0.3% of the lean LLM line. There is no cost worth deleting data to control.
+  - **Four violations fixed:** rejected ticks were *"sampled"* into a quarantine log (now all persisted); storage framed as a *retention* question (now tiering — **G-04 downgraded 🟠→🟡**); Redis trim ordering assumed rather than enforced (durable write must complete first, and a trim while a group lags now alerts); the ledger described only as "persisted" (now **append-only** — corrections are new entries, never in-place edits).
+  - **The subtle one:** Kite rewrites historical candles **in place** on corporate-action ex-dates, destroying the unadjusted series from our view. G-08 now requires capturing the as-of series *before* adjustments land — the only case where the destroying party is a third party.
+  - **One exception, externally imposed:** Kite ToS §9(b) requires deleting stored content on termination (G-15). Recorded rather than hidden; no other exception permitted without its own decision entry.
 - **2026-07-22 (tenth pass)** — **single-user confirmed as a design constraint (D-13), and the unit economics that fall out of it.**
   - **G-44 🔴:** LLM cost is fixed while profit scales with capital, so there is a capital threshold below which the agent fleet cannot pay for itself. The full fleet **breaks even at ~₹1.23 cr** and needs **~₹6.2 cr** to be a sane cost line; the lean config breaks even at ₹0.4 cr. **Below ~₹1 cr the deterministic spine alone is the rational configuration.**
   - **The fourth convergent argument** for maximising the deterministic plane — joining G-11 (cost lever), G-41 (white-box describability) and G-42 (only validatable plane). Four unrelated pressures, one conclusion.

@@ -28,6 +28,7 @@ This log records each significant decision once: what was decided, what else was
 | [D-12](#d-12) | Manager arbitrates by formula, not judgement | PROVISIONAL | CHEAP |
 | [D-13](#d-13) | **Single-user application** (self + immediate family) | FIRM | CHEAP in code, EXPENSIVE in regulation |
 | [D-14](#d-14) | Mathematical formalisation of execution physics, margin & aggregation | FIRM | CHEAP |
+| [D-15](#d-15) | **No destruction of data** — append, tier, never delete | FIRM | Impossible retroactively |
 
 ---
 
@@ -268,6 +269,57 @@ This log records each significant decision once: what was decided, what else was
 **Why PROVISIONAL:** option 3 (hybrid) has not been properly evaluated, and the cost implication for D-10 is unresolved. Revisit once there is enough paper history to measure whether the formula's calls differ meaningfully from an LLM's on the same inputs — that comparison is cheap to run and would settle this.
 
 **Status:** PROVISIONAL · **Reversibility:** CHEAP — the aggregation step is one component behind a stable interface, and both alternatives consume the same specialist outputs.
+
+---
+
+<a id="d-15"></a>
+
+## D-15 — No destruction of data
+
+**Status: FIRM.** *(Owner directive, 2026-07-22.)*
+
+**Decided:** **data is never destroyed.** It is added to, tiered to cheaper storage, or — only where an external obligation requires it — deleted with a recorded reason. Nothing in the system silently drops, samples away, overwrites, or ages out data.
+
+**Alternatives:** conventional retention windows (delete after N months — the industry default); sampling for high-volume paths (keep 1-in-N rejects, rotate logs); overwrite-in-place for reference data (what the design originally did with the instruments master).
+
+### Why this is affordable, which is what makes it a rule rather than an aspiration
+
+| Approach | Storage cost/yr |
+|---|---|
+| Uncompressed, S3 Standard | ~$359 |
+| Parquet+zstd (~8×), S3 Standard | ~$45 |
+| **Parquet+zstd (~8×), S3 Standard-IA** | **~$24** |
+| Parquet+zstd (~8×), Glacier Instant | ~$8 |
+
+**Keeping everything forever costs roughly $24/year** — about a third of the Kite subscription, and **0.3% of even the lean LLM line.** Retention policies exist to control cost; here there is no cost worth controlling. Deleting data to save $24 while spending $9,000 on tokens would be incoherent.
+
+### What it changes concretely
+
+| Was | Now |
+|---|---|
+| Rejected ticks *"sampled into a quarantine log"* | **Every** rejected tick persisted with its reject reason |
+| *"Retention policy — how long to keep full depth"* | **Tiering** policy — hot → warm → cold. Nothing expires |
+| Instruments master overwritten daily | Dated immutable snapshots (G-43) |
+| Redis `MAXLEN` trimming | Permitted **only** where a durable copy provably landed first — and the ordering is enforced, not assumed |
+| Ledger "persisted, crash-safe" | **Append-only.** Corrections are new entries, never in-place edits |
+
+### The subtle one: defending against *third-party* destruction
+
+Kite adjusts historical candles **in place** on a corporate-action ex-date (doc 02 §5.1). The unadjusted series is destroyed from our view, permanently, by someone else. Under D-15 that is not something to accept — the backfill must **capture the as-of series before adjustments land** and record the adjustment event, so both the pre- and post-adjustment views survive.
+
+This is the same shape as G-43: *free to capture now, impossible to reconstruct later.*
+
+### The one exception, and it is not ours to choose
+
+Kite ToS §9(b) requires deleting stored content on termination of the agreement (doc 02 §9.7, G-15). **This is an externally imposed obligation that overrides D-15.** It is recorded here rather than hidden, and it is the reason the research corpus is a leasehold rather than an asset.
+
+**No other exception is permitted.** If a future change appears to require deleting data, it needs a decision entry of its own explaining why — not a retention config.
+
+### What it costs
+
+Storage grows monotonically, so the tiering path must actually be built rather than assumed. Query performance on the hot tier must not degrade as cold data accumulates — that is a partitioning requirement, not a reason to delete. And the quarantine/reject store will contain a lot of genuinely worthless data; it stays anyway, because *deciding what is worthless is exactly the judgement that turns out to be wrong later.*
+
+**Status:** FIRM · **Reversibility:** CHEAP to relax, **IMPOSSIBLE to apply retroactively** — data destroyed under a laxer rule is gone. This is why it is being set now rather than at Phase 2.
 
 ---
 
