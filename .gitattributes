@@ -1,0 +1,12 @@
+# Normalise line endings in the repository regardless of contributor platform.
+# Without this, the stored form depends on each checkout's core.autocrlf setting,
+# and Windows clones produce spurious whole-file diffs.
+* text=auto eol=lf
+
+# Regulatory source documents are binary — never diff, never normalise.
+# The .txt extractions alongside them are the greppable form.
+*.pdf binary
+
+# Keep the archived primary sources out of language statistics and diffs by
+# default; they are reference material, not project code.
+regulatory/** linguist-documentation
