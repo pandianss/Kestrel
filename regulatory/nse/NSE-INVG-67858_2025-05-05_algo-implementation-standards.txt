@@ -1,0 +1,231 @@
+National Stock Exchange of India Limited
+Circular
+
+Department: Investigation                 Date: May 05, 2025
+Download Ref No: NSE/INVG/67858
+Circular Ref. No: 471/2025
+
+All Market Participants,
+
+Sub: Safer participation of retail investors in Algorithmic trading
+
+This is with reference to SEBI Circular Ref. no. SEBI/HO/MIRSD/MIRSD-PoD/P/2025/0000013 dated
+February 04, 2025 and NSE circular Ref. no. NSE/INVG/66524 dated February 05, 2025 regarding afer
+participation of retail investors in Algorithmic trading .
+The implementation standards on safer participation of retail investors in Algorithmic trading have been
+formulated in accordance with para 7 (a) of the aforementioned SEBI Circular and are enclosed as
+Annexure.
+Market Participants are requested to take note of the above and comply.
+
+For and on behalf of
+National Stock Exchange of India Limited
+
+Manish Deo
+Associate Vice President
+National Stock Exchange of India Limited
+
+                                                                     Annexure
+
+        Implementation Standards for safer participation of retail investors in Algorithmic trading
+        (Under Clause 7 of the SEBI circular ref. SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/0000013
+        dated 4-Feb-2025)
+
+         A. API Access Standards for Clients in Trading
+
+         1. Stockbrokers may provide their clients with API access to their trading systems. To gain access,
+              clients must mandatorily provide the stockbroker with a static IP address(es) which will be
+
+         2. The client may give only one static IP address (primary), or provide additional Static IP address
+              (secondary) for the purpose of connectivity redundancy
+
+         3. Multiple API keys can be given to the same client (for connecting to different segments, running
+              different algos, etc.). When the client takes the facility of Multiple API keys, then each such API
+              key may be mapped to the same primary/ secondary static IPs of that client only or may have
+              separate the primary/ secondary static IPs for each of the multiple API Keys.
+
+         4. When the clients have taken multiple API keys, the broker will ensure that non-registered algos
+              are run only through one of the predefined API keys. Other API keys can be used only for
+              registered algos.
+
+         5. The need for static IP is mandatory for API access for client generated algos and for algos
+              generated via empanelled algo provider(s) using Vendor API Key or by the broker. In case of
+              client generated algos, the static IP shall be that of the client whereas, in case of algos generated
+              via empanelled algo provider(s), the static IP shall be that of the vendor or the client. For the
+              broker-generated algos, the static IP shall be that of the broker or the client.
+
+         6. Clients will have the ability to update their mapped static IP addresses as needed, but not more
+              than once a calendar week. Clients may reach out to the broker in extraordinary cases where
+              they have already updated the static IP once a week but need to make changes due to
+              extenuating circumstances.
+
+         7. A static IP can only be mapped to one client at a time. However, static IPs can be shared between
+              clients provided such clients belong to one family as defined in SEBI circular
+              SEBI/HO/MIRSD/MIRSD-PoD1/P/CIR/2024/169 dated 3 December 2024. The client shall
+              provide a written request / email from registered email / request using 2FA validation to the
+              broker for sharing the static IP to such family.
+
+         8. All API sessions shall be compulsorily logged out every day before the start of the next trading
+              day.
+
+                                                                                                                                                                Page 2 of 6
+National Stock Exchange of India Limited
+
+         9. A Member Client API Enablement Annexure may be specified by the Exchanges from time to
+              time.
+
+        B. Standards around APIs without registering algo
+         1. Clients can use API connectivity only for implementing automated trading systems, computer
+
+              algorithms, or other software-based trading solutions to automate the buying and selling of
+              securities/ contracts on the secondary markets. Such API connectivity should be equipped with
+              the necessary RMS checks by the brokers.
+         2. The Threshold Order Per Second (TOPS) is initially set at not exceeding 10 orders per second
+              and may be adjusted by the stock exchanges as needed after due notice to the market. If the
+              flow of algo orders from the client to the broker via API is below the defined Threshold Order Per
+              Second (TOPS) i.e. 10 OPS per exchange, the client will not be required to register for algorithmic
+              trading from the broker's system. The threshold will be applied basis the calendar clock second
+              of the broker server.
+         3. All such algo orders via API which are below the defined Threshold Order Per Second (TOPS),
+
+              require registration with the Exchange and a generic algo ID shall be provided by the Exchange
+              for such Algos. Such algos shall satisfy necessary conditions related to Risk Management (Refer
+
+         4. The Stock Exchanges may, from time to time, specify restricted order types and/or
+              contracts/securities for client algos. The brokers will ensure that their APIs do not permit such
+              restricted orders/contracts/securities.
+
+         5. If the broker receives orders that exceed the Threshold OPS limit, the broker shall reject/ not
+              accept/not process any orders exceeding the OPS limit, in accordance with their policy.
+
+         6. Every broker providing API connectivity to clients for trading should have the capability to
+              effectively monitor or control the Threshold OPS limits for algos not requiring registration.
+
+        C. Standards for clients generated registered algos
+         1. If a client wishes to place orders at a speed exceeding the Threshold Order Per Second (OPS)
+
+              i.e. 10 OPS, they must register their algorithm with each Exchange where the algorithm is
+              intended to be used. The Exchanges will formulate a simplified registration and compliance
+              framework for orders up to a certain threshold.
+
+                                                                                                                                                                Page 3 of 6
+National Stock Exchange of India Limited
+
+         2. To register the algorithm, the client must provide the necessary details to the broker, who will
+              forward this information to the relevant exchange(s). The exchange(s) will register the algorithm
+              and issue a registration ID, which will be communicated by the broker to the client. The orders
+              will be tagged with the exchange-provided algorithm ID(s).
+
+         3.
+              the broker. The broker will then notify the exchange and seek appropriate registration updation.
+
+         4.
+              through third parties /others.
+
+        D. Broker generated algos
+         1. Brokers may also create and offer various algorithms to their clients. Each algorithm created by
+
+              the broker will be registered with the exchange, and an exchange-specific algorithm ID will be
+              obtained.
+         2. The broker can offer these algorithms to clients, providing the relevant details about the
+              algorithm to those using it. All client orders executed through these algorithms must include the
+              appropriate exchange algorithm ID.
+         3. If there are any changes to the logic of a broker-generated algorithm, these modifications will be
+              reported to the exchange, and the necessary approvals will be updated accordingly.
+
+        E. Algos provided by algo provider
+         1. All algorithm (Algo) providers must be empanelled with exchanges in accordance with the
+
+              guidelines set by each exchange. The algo provider(s) must be registered with each exchange
+              where the algorithms are intended to trade.
+         2. The empanelled algo providers shall register all their algos with the exchange and the stock
+              exchanges shall assign a unique algo ID to each such algo. Such unique algo IDs may be used
+              across members once registered.
+         3. The broker may enter into a commercial arrangement with the algo provider, which may include
+              sharing of fees. Additionally, the broker may establish a technical arrangement with the algo
+
+                                                                                                                means) with the algo
+
+              systems through the technology services provided by the algo provider.
+
+                                                                                                                                                                Page 4 of 6
+National Stock Exchange of India Limited
+
+         4. Any broker who has a commercial, technical, or combined arrangement with an exchange-
+              empanelled algo provider must inform all relevant exchanges where the broker is a member in a
+              manner as specified by the Exchanges from time to time. The broker must also notify the
+              exchanges if the arrangement is terminated or ended.
+
+         5. The broker should carry out adequate due diligence in relation to the algo provider and ensure
+              that the algo provider is not involved in any misconduct or violation of securities laws. The broker
+              must immediately report instances of such violations to the respective Exchange (s).
+
+        F. Threshold Orders Per Second (OPS)
+        The Threshold Order Per Second is initially set at not exceeding 10 orders per second per exchange
+        /segment and may be adjusted by the stock exchanges as needed after due notice to the market. The
+        broker may set its own threshold order per second limit at client level which may vary from client to
+        client not exceeding the current prescribed Threshold Order Per Second.
+
+        G. Algo ID tagging
+        Exchanges shall issue appropriate tagging mechanisms for registered and registration free algo
+        orders. All algo orders (Below and above the threshold) shall be tagged with a unique identifier
+        provided by the Exchange in order to establish audit trail.
+
+        H. Risk Management
+        Brokers shall comply with the relevant requirements for Internet Based Trading (IBT), Securities
+        trading using Wireless Technology (STWT), Risk Management and guidelines on Decision Support
+        Tools / Algorithms trading
+        Reference NSE consolidated circular NSE/MSD/67753 dated April 29, 2025.
+
+        I. Operational Specifications for providing algo through IBT / STWT / Client API and Vendor API
+          In addition to the guidelines mentioned in para 8.1 of NSE Circular dated April 29, 2025, the
+          following shall be ensured -
+         a. The broker should ensure sound audit trail for all IBT / STWT / Client API /Vendor API orders and
+              trades and be able to provide identification of actual user and user-id for all such orders and
+              trades. The audit trail data should be available for at least 5 years.
+
+                                                                                                                                                                Page 5 of 6
+National Stock Exchange of India Limited
+
+         b. The IBT / STWT / Client API / Vendor API system shall have sufficient security features as
+              prescribed in the SEBI cyber security circular no SEBI/HO/ITD-
+              1/ITD_CSC_EXT/P/CIR/2024/113 dated August 20, 2024, other SEBI / Exchanges directives
+              from time to time.
+
+         c. Brokers shall be required to have OAuth (Open Authentication) based authentication only or any
+              authentication mechanism allowed / communicated by the Exchange / SEBI from time to time.
+
+         d. The IBT / STWT / Client API / Vendor API system shall have sufficient security features including
+              password protection for the user and user ID, automatic expiry of passwords at the end of a
+              reasonable duration, and re-initialisation of access on entering fresh passwords. System shall
+              authenticate client access to IBT / STWT / other API through two factor authentication
+
+         e. Brokers shall be required to put in place system, processes and policies to ensure that open APIs
+              are not permitted, and access is being provided only through a unique vendor client specific API
+              key and static IP whitelisted by the broker for retail users and unique vendor API key and
+              whitelisted IP for algo providers to ensure identification and traceability of algo provider and the
+              end user i.e. investor.
+
+         f. The brokers shall be fully responsible and liable for all orders emanating through their IBT /
+              STWT / Client API / Vendor API systems. It shall be the responsibility of the broker to ensure
+              that only clients who fulfil the eligibility criteria are permitted to use the IBT / STWT / Client API
+              / Vendor API facility.
+
+         g. Brokers may take such other measures and implement such other safeguards as they deem fit
+              to ensure security and integrity of transactions.
+
+         h. All Retail Algorithms, including those provided by empanelled Algo providers should be hosted
+                                      servers.
+
+        J. Notes -
+             1. These standards do not apply to trading under Direct Market Access (DMA), which will remain
+                  governed by the relevant provisions.
+
+             2. The broker may charge the client fees/subscription charges for providing the API services
+                  which will be over and above the brokerage charged to the client including any charges levied
+                  by the stock exchanges for algorithm registration and recovered from the client.
+
+             3. The stock exchanges will have the authority to kill any rogue algo(s) in case it is impacting the
+                  market.
+
+                                                                                                                                                                Page 6 of 6
+

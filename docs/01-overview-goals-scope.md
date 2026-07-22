@@ -1,6 +1,6 @@
 # 01 — Overview, Goals & Scope
 
-**Last updated:** 2026-07-21
+**Last updated:** 2026-07-22
 
 ---
 
@@ -20,14 +20,18 @@ Build a multi-agent system that continuously studies the Indian equity and deriv
 
 - **Cost control** on LLM usage via model tiering (cheap models for high-frequency work, strong models for rare, high-stakes judgement).
 - **Observability** sufficient to trust an autonomous system (dashboards, P&L ledger, fill-quality metrics, alerting).
-- **Reproducibility** of research (static study runs and backtests must be re-runnable and free of look-ahead bias).
+- **Reproducibility** of research (static study runs and deterministic-plane backtests must be re-runnable and free of look-ahead bias).
+  - ⚠️ **Scoped 2026-07-22:** reproducibility and look-ahead-freedom are achievable for the **hot plane**. They are **not** achievable for LLM agents — the model has seen the historical period and its outputs are non-deterministic (G-42). The cognition plane is forward-tested, not backtested.
 
 ## 4. Scope
 
 ### In scope (this design)
 - Live market-data ingestion (WebSocket) and historical backfill.
 - A tiered subscription manager to fit 9,000 instruments across 3 WebSocket connections.
-- A paper-execution engine (fill simulator + risk engine + P&L ledger).
+- A paper-execution engine (fill simulator + risk engine + margin model + P&L ledger).
+- A **deterministic position manager** owning stops, targets, time-exits, and intraday square-off — the exit path, which runs independently of the agent fleet.
+- A **deterministic replay harness** for fill-fidelity validation, **deterministic-plane** backtests, and incident reproduction (LLM replay is forensics only — doc 07 §4.3.1).
+- **Compliance groundwork** for SEBI's retail algo framework (static IP, order-rate ceiling, market protection) — in force since April 2026 and therefore a build-time concern.
 - The agent fleet: static study agents, live screeners/specialists, a risk/portfolio manager, and information-source agents (news, central banks/macro).
 - Supporting storage, event bus, deployment, observability, and security posture.
 
@@ -37,6 +41,7 @@ Build a multi-agent system that continuously studies the Indian equity and deriv
 - **Options pricing/greeks engine, portfolio optimizer, and tax/accounting** — may come later; not in the initial build.
 - **A user-facing UI** beyond operational dashboards.
 - **Multiple brokers.** Kite/Zerodha only.
+- **Multi-user anything.** This is a **single-user application** — one operator trading their own account, extendable to immediate family under the regulatory carve-out (doc 13, D-13). No accounts, no auth, no multi-tenancy, no public API. Serving anyone else would make us an *algo provider* requiring exchange empanelment (doc 02 §9.4).
 
 ## 5. Explicit non-goals (calibration)
 
@@ -51,15 +56,24 @@ The following are proposed measures for "is the paper system working?" They are 
 |---|---|
 | Tick-to-internal-state latency (p99) | < 5 ms from packet receipt to normalized state |
 | Data completeness | 0 silently dropped ticks; all gaps logged and backfilled |
+| **Data correctness** | **0 fills triggered by a tick that failed the sanity gate; reject rate tracked and explained** |
 | Fill-simulator fidelity | Paper fills reconcile against replayed ticks within a defined slippage band |
+| **Exit reliability** | **100% of stops fire within their latency budget — including with the entire cognition plane stopped** |
+| **Exit independence** | **A full paper session survives a killed cognition plane with every position correctly closed** |
+| **Margin realism** | **No paper position exceeds what the real account could have funded** |
 | Rate-budget safety | Zero `429` responses in normal operation; every Kite call passes through a governed budget |
+| **Compliance** | **Order rate never exceeds 10/s; every order originates from the whitelisted IP** |
 | Decision auditability | Every paper order traceable to the agent chain + data that produced it |
 | Uptime during market hours | Data plane reconnects automatically; no manual intervention intraday |
+| **Reproducibility** | **Any session replays byte-identically across the hot plane** from captured ticks. ⚠️ Cognition-plane replay requires cached LLM responses and is reproducible only for recorded prompts (G-42) |
 
-> **Open:** profitability targets and risk-adjusted return metrics (Sharpe, max drawdown) cannot be set until a strategy exists. See doc 11.
+*The five bold rows were added 2026-07-22. Note what they have in common: each measures whether the system behaves correctly when something else has already gone wrong. The original set measured the happy path, which is the easier half.*
+
+> **Open:** profitability targets and risk-adjusted return metrics (Sharpe, max drawdown) cannot be set until a strategy exists. See doc 11, G-14.
 
 ## 7. Users / operators
 
-- **Operator (you):** performs the daily login (regulatory requirement, doc 02 §2), monitors dashboards, approves the eventual go/no-go to live.
+- **Operator (you) — the only one (doc 13, D-13):** performs the daily login (regulatory requirement, doc 02 §2), monitors dashboards, approves the eventual go/no-go to live.
+  - ⚠️ **There is no on-call rotation.** Travel, illness, and sleep are ordinary conditions, not edge cases. This is why deterministic exits (D-07) are a hard requirement rather than a nicety: **the system must run a full session and close every position correctly with nobody watching.**
 - **The agents:** autonomous during market hours within the risk manager's guardrails.
 - **Reviewers (now):** other agents/humans reading this doc set to find gaps.

@@ -1,6 +1,6 @@
 # 05 — Agent Architecture
 
-**Last updated:** 2026-07-21
+**Last updated:** 2026-07-22
 
 > **Core principle (repeated because it governs everything here):** agent count is *not* set by the size of the market. It is set by (a) Kite's per-key rate limits — which force the I/O-facing agents to be effectively one of each — and (b) the LLM latency/token budget on the cognition agents — which has sharply diminishing returns past ~30. Information-source agents (news, macro) are cheap because they never touch Kite's limits, but each earns its place only if its signal reaches a decision and changes an action.
 
@@ -23,9 +23,15 @@ Not everything here is an LLM. We distinguish:
 | Data Ingester (owns 3 WS connections) | **1** (with up to 3 connection workers) | 3-connection hard cap per key; more copies can't add connections |
 | Quote Poller | **1** | Shares the 1 req/s quote budget; parallel pollers just queue |
 | Historical Backfill | **1** (worker pool sharing a 3/s token bucket) | 3 req/s is the ceiling regardless of worker count |
+| Position Manager | **1** | Must hold every open position coherently; two would race on the same stop |
 | Paper Execution Gateway | **1** | Must be the single writer; parallel writers = race + budget violation |
 
-**The only way to raise this ceiling** is additional API keys/subscriptions (each adds 3 WS connections + a fresh rate budget). ⚠️ Verify against Zerodha ToS before relying on it (doc 11, Gap G-05).
+**Raising this ceiling with additional API keys is largely not available** ⚠️ *(revised 2026-07-22)*. The earlier version of this document assumed extra keys/subscriptions would multiply the budget. Two facts undercut that:
+
+1. **The 10 orders/second limit is scoped to the Kite client ID, not the app** — it applies regardless of how many apps sit under one developer profile. Extra apps buy no extra order throughput.
+2. **The SEBI framework pushes toward unique credentials per client and one static IP per developer profile** (doc 02 §9), so a fan of keys under one operator is exactly the pattern the rules are designed to discourage.
+
+Additional *WebSocket* capacity via a second key may still be technically possible, but plan capacity on **one key, one budget** and treat anything more as a question for Zerodha rather than an assumption (doc 11, G-05).
 
 ---
 
@@ -74,14 +80,22 @@ A funnel that turns broad-cheap into narrow-expensive, with exactly one authorit
              ▼
    ┌───────────────────┐  1, Claude Fable
    │  RISK / PORTFOLIO │  sizes, applies risk limits, arbitrates,
-   │  MANAGER          │  SOLE authority to emit orders
+   │  MANAGER          │  SOLE authority to OPEN a position
    └─────────┬─────────┘
-             │ order intent
+             │ entry intent (+ mandatory exit plan)
              ▼
    ┌───────────────────┐  1 (Rust)
-   │  EXECUTION GATEWAY│  budget check → fill sim → P&L ledger → ack
-   └───────────────────┘
+   │  EXECUTION GATEWAY│  risk + margin check → fill sim → ledger → ack
+   └─────────┬─────────┘
+             │ on fill, hands the position to ↓
+             ▼
+   ┌───────────────────┐  1 (Rust) — NO LLM
+   │  POSITION MANAGER │  stops · targets · time-exits · square-off
+   └─────────┬─────────┘  emits exit intents deterministically
+             └──────────────► back to EXECUTION GATEWAY
 ```
+
+**Note the loop.** The funnel above is the *entry* path and it is LLM-shaped. The exit path is a closed deterministic loop between the Position Manager and the Execution Gateway, with no Python in it (doc 03 §2.1, doc 07 §4). That asymmetry is deliberate: a slow entry costs an opportunity, a slow exit costs money.
 
 **Recommended concurrent live agent range: ~15–25.** Beyond ~30 you pay for conflicting opinions and latency, not edge.
 
@@ -90,9 +104,12 @@ A funnel that turns broad-cheap into narrow-expensive, with exactly one authorit
 | Screeners | 8–12 | Haiku | Partition the universe; rolling scan; cheap & fast |
 | Specialists | 3–5 | Sonnet | One per lens: technical, options/OI, news/event, macro-regime |
 | Risk/Portfolio Manager | **1** | Fable | Singleton by design — the safety throttle, not a bottleneck to remove |
+| Position Manager | **1** | — (Rust) | Deterministic exits; never waits on an LLM |
 | Execution Gateway | **1** | — (Rust) | Single writer |
 
 **Why the singleton manager is a feature, not a flaw:** multiple LLM agents placing orders in parallel is a race condition with real money and no coherent portfolio view. One manager holds the whole book, applies global risk limits, and resolves conflicting specialist opinions.
+
+**And why the singleton manager is no longer a single point of *failure*:** because it is only on the entry path. If it stalls, hangs, or its model provider has an outage, the system stops opening positions — and every position already open continues to be managed by deterministic Rust. The worst case degrades to "we stop trading," not "we stop managing risk."
 
 ---
 
@@ -109,8 +126,9 @@ A funnel that turns broad-cheap into narrow-expensive, with exactly one authorit
 
 - **Orchestration:** LangGraph graph with explicit shared state (regime, positions, active candidates, risk budget). Each edge is a defined hand-off; no implicit global mutation.
 - **Communication:** via Redis Streams (durable, replayable) — screeners → specialists → manager → execution, plus news/macro event streams.
-- **Backpressure:** if specialists lag, screeners throttle candidate emission; if the manager lags, it always has the option to do nothing (safe default).
-- **Determinism where possible:** risk limits, position sizing bounds, and kill-switch triggers are *deterministic code*, not LLM judgement — the LLM proposes within hard-coded guardrails.
+- **Backpressure:** if specialists lag, screeners throttle candidate emission; if the manager lags, it always has the option to open nothing.
+  - ⚠️ **Corrected 2026-07-22:** an earlier version of this line read "the manager can always do nothing (safe default)." That is true for *entries* and false for *exits* — doing nothing while holding a losing position is not a safe default, it is an unbounded one. Doing nothing is safe only because the Position Manager (doc 07 §4) is separately guaranteed to act.
+- **Determinism where possible:** risk limits, position sizing bounds, **exits**, and kill-switch triggers are *deterministic code*, not LLM judgement — the LLM proposes within hard-coded guardrails.
 
 ---
 
@@ -132,6 +150,7 @@ If a proposed agent doesn't fit the **macro desk / single-stock desk / microstru
 | Data Ingester | 1 (≤3 conn workers) | 3 connections | Kite WS limit |
 | Quote Poller | 1 | 1 effective | Kite 1 req/s |
 | Backfill | 1 (pooled) | 3 req/s effective | Kite historical limit |
+| Position Manager | 1 | 1 (must be) | Coherent ownership of open positions |
 | Execution Gateway | 1 | 1 (must be) | Single-writer safety |
 | Static study fleet | 8–24 | ~30 useful | Tokens / redundancy |
 | Live screeners | 8–12 | universe/latency | Tokens / latency |

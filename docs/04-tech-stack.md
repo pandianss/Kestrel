@@ -1,6 +1,6 @@
 # 04 — Technology Stack
 
-**Last updated:** 2026-07-21
+**Last updated:** 2026-07-22
 **Confirmed decision:** Rust (hot plane) + Python (cognition plane).
 
 ---
@@ -25,6 +25,7 @@ Candidate libraries:
 - LLM: **Anthropic SDK** (Claude — tiered, see §4).
 - Kite (non-hot-path use, research): `pykiteconnect`.
 - Research/backtest: `polars` (fast dataframes), `duckdb`, `vectorbt`/custom event-driven backtester.
+  - ⚠️ **Scope:** this backtester covers the **deterministic plane only** — signals, entries, exits, stops, sizing, costs. LLM agent judgement is not backtestable (G-42) and is validated forward in paper trading. Do not build a backtester that pretends to score the agent fleet.
 - Redis: `redis-py`.
 
 ## 2. The Rust ↔ Python boundary
@@ -76,6 +77,14 @@ Cost and latency are managed by matching model strength to job frequency/stakes:
 - **Kafka for the bus:** heavier than needed at single-host start; Redis Streams (or NATS JetStream) is leaner. Revisit if we outgrow a single host.
 
 ## 7. Stack-level open items (see doc 11)
-- Confirm QuestDB ingest throughput and storage sizing at 9,000-instrument tick volume.
-- Confirm LangGraph fits the live latency budget for the screener→specialist→manager funnel (or whether a lighter custom orchestrator is better for the live path, keeping LangGraph for static study).
-- Pin exact Claude model IDs and estimate monthly token spend under target agent counts.
+- Confirm QuestDB ingest throughput at ~9,000 writes/sec (G-03). Note that doc 06 §6 shows the *byte* volume is trivial — it is the write rate that is unproven, so keep the ingestion path abstract until this is measured (doc 13, D-05).
+- Confirm LangGraph fits the live latency budget for the screener→specialist→manager funnel (G-10) — now an entry-path performance question only, since exits are deterministic.
+- Pin exact Claude model IDs and estimate monthly token spend under target agent counts (G-11) — the only large or uncertain line in the cost model.
+
+---
+
+## 8. Rationale, alternatives, and reversibility
+
+Each choice above is recorded as a numbered decision in **[doc 13 — Decision Log](13-decision-log.md)**, with the alternatives actually considered, what the choice costs, and how expensive it would be to reverse. Relevant here: D-02 (Rust + Python), D-04 (Redis boundary), D-05 (QuestDB), D-10 (model tiering), D-11 (single host).
+
+**Worth reading D-02 in particular before defending the stack** — it carries the honest counter-argument that the Rust plane may not earn its cost at the paper stage, which was previously filed only as an open question for reviewers rather than as part of the decision it belongs to.
