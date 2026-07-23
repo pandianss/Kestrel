@@ -11,7 +11,10 @@ anything live.
 | Path | What |
 |---|---|
 | `costs.py` | Indian transaction-cost model — dated, sourced (doc 07 §5.1, archived rates). The money-losing-if-wrong number, tested. |
-| `data/universe.py` | Point-in-time universe abstraction. `StaticUniverse` is survivorship-biased and says so; `PointInTimeUniverse` is the trustworthy one (needs the G-43 snapshotter). |
+| `data/universe.py` | Point-in-time universe abstraction. `StaticUniverse` is survivorship-biased and says so; `PointInTimeUniverse` is the trustworthy one, now fed by the snapshotter. |
+| `data/snapshot.py` | **The G-43 / D-15 keystone.** Immutable, dated reference snapshots. A second write with different content *raises* — never overwrites. `asof()` gives point-in-time retrieval. sha256 manifests. |
+| `data/reference.py` | Swappable reference sources: `KiteInstrumentsSource` (real, inert until auth) and `StaticListSource` (dev, runnable today). |
+| `data/pit.py` | Bridge: archived snapshots → `PointInTimeUniverse`. Closes the loop snapshots → PIT universe → backtest. |
 | `data/yahoo.py` | **Development-only** NSE loader. Survivorship-biased, licence-incompatible with live — for building the engine, not for conclusions. |
 | `strategies/momentum.py` | First documented anomaly (D-17): cross-sectional momentum, a pure function of prices. |
 | `backtest/engine.py` | Deterministic, point-in-time, cost-aware monthly rebalance loop. Propagates the survivorship flag so a biased run can't be mistaken for a clean one. |
@@ -22,7 +25,8 @@ anything live.
 ```bash
 pip install -e ".[dev]"
 python scripts/run_momentum.py      # the first empirical result + its caveat
-pytest -q                           # 14 tests: cost traps, determinism, no look-ahead
+python scripts/snapshot_reference.py  # daily: archive today's universe (start accumulating PIT data)
+pytest -q                           # 21 tests: cost traps, determinism, no look-ahead, no-overwrite invariant
 ```
 
 ## The first result, and why it matters (2026-07-23)

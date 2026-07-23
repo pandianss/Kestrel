@@ -824,7 +824,9 @@ The architecture already draws the right line — it just wasn't being used for 
 <a id="g-43"></a>
 
 ### G-43 🟠 — Point-in-time reference data is not being captured, and cannot be recovered later *(new)*
-**Status:** OPEN · **Resolve by:** **Phase 0** — every day of delay is permanently lost data
+**Status:** SNAPSHOTTER BUILT — accumulation begins day one · **Resolve by:** **Phase 0** — every day of delay is permanently lost data
+
+✅ **2026-07-23 — the fix is now code, not a plan.** `kestrel/data/snapshot.py` (`SnapshotStore`) writes dated, immutable reference snapshots with sha256 manifests and enforces the D-15 no-overwrite invariant: a second write with *different* content for the same (dataset, date) **raises `SnapshotConflictError`** rather than destroying the prior view; an identical re-write is an idempotent no-op, so the daily job is safe to re-run. `asof(dataset, d)` gives point-in-time retrieval (latest snapshot ≤ d, never a future one). `kestrel/data/pit.py` reads the archive straight back into a `PointInTimeUniverse`, closing the loop *snapshots → PIT universe → backtest*. Daily job: `scripts/snapshot_reference.py`. Tested end-to-end (`tests/test_snapshot.py`, 7 tests incl. the conflict invariant). **What remains is not code but *running it*:** the real feed is `KiteInstrumentsSource`, inert until Kite auth exists (doc 10 §2) — until then the dev `StaticListSource` exercises the whole path. The accumulation the trustworthy factor test needs starts the first day this job runs against real instruments.
 
 `point-in-time` returns **zero hits** in the repo. The design fetches the instruments master daily (doc 06 §1.1) and **overwrites it**. The same is true of every other piece of reference data.
 
