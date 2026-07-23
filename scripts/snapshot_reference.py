@@ -5,13 +5,18 @@ Idempotent: re-running on the same day with the same data is a no-op; a
 *different* dataset for a date that already exists raises rather than
 overwriting. Every day skipped is research data permanently lost.
 
-    python scripts/snapshot_reference.py
+    python scripts/snapshot_reference.py             # dev fallback allowed
+    python scripts/snapshot_reference.py --require-live   # scheduled/prod mode
 
-Uses the dev StaticListSource until Kite auth is wired (doc 10 §2); swap in
-KiteInstrumentsSource there with an authenticated client.
+In `--require-live` mode (also `KESTREL_REQUIRE_LIVE=1`) the job refuses the dev
+fallback: with no valid Kite token it exits non-zero *without writing anything*,
+so a scheduler never poisons the real archive with dev data. That non-zero exit
+is the signal to the operator that the morning token mint (scripts/kite_login.py)
+has not happened yet.
 """
 from __future__ import annotations
 
+import os
 import sys
 from datetime import date, datetime, timezone
 
@@ -37,15 +42,29 @@ STORE_ROOT = "data/snapshots"
 TOKEN_PATH = "data/secrets/kite_token.json"
 
 
-def choose_source(now: datetime) -> ReferenceSource:
-    """Prefer the real Kite instruments dump when a valid token is stored; fall
-    back to the dev source so the pipeline still runs before auth is wired.
-    Note the fallback loudly — a dev snapshot must never be mistaken for real
-    reference data."""
+class NoLiveTokenError(RuntimeError):
+    """Raised in require-live mode when no valid token is available. A caller
+    (scheduler) should treat this as 'the operator hasn't logged in yet', not
+    as a code fault."""
+
+
+def choose_source(now: datetime, *, require_live: bool) -> ReferenceSource:
+    """Prefer the real Kite instruments dump when a valid token is stored.
+
+    In require-live mode, no token is a hard error — never a silent dev
+    fallback, because a scheduled run archiving dev data as a real trading-day
+    snapshot would corrupt the point-in-time record the whole design depends on.
+    """
     token = FileTokenStore(TOKEN_PATH).load_valid(now)
     if token is not None:
         print(f"  using live Kite instruments ({token.masked()})")
         return KiteInstrumentsSource(token.api_key, token.access_token)
+    if require_live:
+        raise NoLiveTokenError(
+            "no valid Kite token and --require-live is set — refusing to archive "
+            "DEV data as a real snapshot. Run scripts/kite_login.py to mint today's "
+            "token, then re-run. (Nothing was written.)"
+        )
     print("  ⚠️  no valid Kite token — falling back to DEV static list. "
           "Run scripts/kite_login.py to capture real reference data.")
     return StaticListSource(DEV_SYMBOLS)
@@ -64,17 +83,26 @@ def snapshot_today(store: SnapshotStore, source: ReferenceSource, today: date) -
         raise
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    require_live = "--require-live" in argv or os.environ.get("KESTREL_REQUIRE_LIVE") == "1"
+
     now = datetime.now(timezone.utc)
     today = now.astimezone(IST).date()   # trading day is an IST calendar day
     store = SnapshotStore(STORE_ROOT)
-    print(f"Daily reference snapshot — {today}")
-    source = choose_source(now)
+    print(f"Daily reference snapshot — {today}"
+          f"{'  [require-live]' if require_live else ''}")
+    try:
+        source = choose_source(now, require_live=require_live)
+    except NoLiveTokenError as e:
+        print(f"  ✗ {e}")
+        return 3   # distinct code: 'operator action needed', not a crash
     snapshot_today(store, source, today)
     dates = store.list_dates(source.dataset)
     print(f"  archive now holds {len(dates)} dated snapshot(s): "
           f"{dates[0]} .. {dates[-1]}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

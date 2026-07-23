@@ -1,0 +1,18 @@
+# Kestrel daily snapshot — cron alternative to the systemd timer.
+# Install:  crontab -e   (as the 'kestrel' service user), then paste below.
+#
+# IMPORTANT: cron fires in the host's local timezone. Either set the host to
+# IST, or set CRON_TZ so the schedule means what it says. 09:30 IST is after
+# the instruments master regenerates (~08:30 IST, doc 02 §4) and leaves the
+# operator a morning window to mint the token (scripts/kite_login.py).
+#
+# The job runs in --require-live mode via the runner, so a missing token exits
+# 3 and cron mails the operator instead of silently archiving dev data.
+
+CRON_TZ=Asia/Kolkata
+KESTREL_HOME=/opt/kestrel
+KESTREL_PYTHON=/opt/kestrel/.venv/bin/python
+MAILTO=you@example.com
+
+# min hour dom mon dow  command
+30 9 * * 1-5  /opt/kestrel/deploy/scheduler/daily_snapshot.sh

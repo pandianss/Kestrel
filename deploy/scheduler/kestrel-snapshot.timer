@@ -1,0 +1,19 @@
+[Unit]
+Description=Fire the Kestrel daily snapshot after the instruments master regenerates
+Documentation=https://github.com/pandianss/Kestrel/blob/main/docs/10-prerequisites-and-ops.md
+
+[Timer]
+# Instruments master regenerates ~08:30 IST (doc 02 §4). Fire at 09:30 IST on
+# trading weekdays, leaving the operator the morning window to mint the token
+# first (scripts/kite_login.py). Timezone is pinned to IST so it is correct
+# regardless of the host clock (systemd >= 252). NSE holidays are not weekly;
+# a holiday run simply snapshots an unchanged master (idempotent no-op).
+OnCalendar=Mon-Fri 09:30 Asia/Kolkata
+# If the host was down at fire time, run once on the next boot — a missed day
+# is unrecoverable reference data.
+Persistent=true
+# Jitter so a fleet doesn't stampede Kite at the same instant.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

@@ -51,6 +51,12 @@ The `access_token` **expires at 6 AM daily** by regulation; there is no refresh 
 
 **The Position Manager row is the dangerous one.** A restart that loses exit plans leaves positions open with no stops and nothing watching them — the exact state §6's kill-switch exists to prevent. Reloading exit plans before processing the first tick is a hard startup ordering requirement, not a nicety.
 
+### 3.2 Daily scheduling — ✅ built (`deploy/scheduler/`)
+
+The one job that must run every trading day and cannot be backfilled is the point-in-time reference snapshot (G-43 / D-15). It is scheduled via a systemd timer (`kestrel-snapshot.timer`, cron alternative provided), fired at **09:30 IST Mon–Fri** — after the instruments master regenerates (~08:30, doc 02 §4) and after the operator's morning window to mint the token.
+
+**The split is deliberate and reflects G-12:** the token mint (`scripts/kite_login.py`) stays operator-in-the-loop and is *not* scheduled; only the snapshot is automated. The scheduled job runs `--require-live`, so with no valid token it **exits 3 and writes nothing** rather than archiving the dev fallback as a real snapshot — a non-zero exit that alerts the operator instead of silently corrupting the point-in-time record. The timer pins `Asia/Kolkata` (correct regardless of host clock) and uses `Persistent=true` so a run missed to downtime fires on the next boot. See `deploy/scheduler/README.md`.
+
 ---
 
 ## 4. Observability (non-negotiable for an autonomous trading system)

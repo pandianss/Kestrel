@@ -1,0 +1,20 @@
+[Unit]
+Description=Kestrel daily reference-data snapshot (G-43 / D-15)
+Documentation=https://github.com/pandianss/Kestrel/blob/main/docs/10-prerequisites-and-ops.md
+# Best-effort: proceed even if the network target is flaky; the job fails
+# safe on its own (require-live exits 3 without writing).
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Run as a non-root service account that owns the repo and data/ dir.
+User=kestrel
+Group=kestrel
+Environment=KESTREL_HOME=/opt/kestrel
+Environment=KESTREL_PYTHON=/opt/kestrel/.venv/bin/python
+ExecStart=/opt/kestrel/deploy/scheduler/daily_snapshot.sh
+# rc=3 (no token yet) is an expected operator-action state, not a crash — do
+# not let it spam the failure counter. Treat it as a clean-ish exit.
+SuccessExitStatus=0 3
+Nice=10

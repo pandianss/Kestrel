@@ -28,8 +28,8 @@ anything live.
 pip install -e ".[dev]"
 python scripts/run_momentum.py        # the first empirical result + its caveat
 python scripts/kite_login.py          # daily: mint the access_token (operator-in-the-loop)
-python scripts/snapshot_reference.py  # daily: archive today's universe (real Kite once logged in, else dev)
-pytest -q                             # 40 tests: cost traps, determinism, no look-ahead, no-overwrite, login
+python scripts/snapshot_reference.py --require-live  # daily: archive today's universe (scheduled via deploy/scheduler/)
+pytest -q                             # 44 tests: cost traps, determinism, no look-ahead, no-overwrite, login, scheduler
 ```
 
 ## The first result, and why it matters (2026-07-23)
