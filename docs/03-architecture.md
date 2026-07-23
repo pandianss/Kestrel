@@ -1,6 +1,6 @@
 # 03 — System Architecture
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 ---
 
@@ -21,14 +21,15 @@ flowchart TB
     KWS(["Kite WebSocket<br/>wss://ws.kite.trade"])
     KREST(["Kite REST<br/>read-only in the paper phase"])
 
-    subgraph HOT["HOT PLANE — Rust · deterministic · no LLM"]
-        INST["Instruments Loader<br/>daily master · identity map"]
-        ING["Data Ingester<br/>3 WS conns · binary parser"]
-        SUB["Subscription Manager<br/>tiered LTP / Quote / Full"]
-        QP["Quote Poller<br/>1 req/s"]
+    subgraph DATA["DATA SERVICES — Python · no LLM (D-02)"]
+        INST["Instruments Loader<br/>daily master · identity map · PIT snapshots"]
+        ING["Data Ingester<br/>~10 held names live · daily bars via REST"]
         BF["Historical Backfill<br/>3 req/s · resumable"]
+    end
+
+    subgraph CORE["EXECUTION SAFETY CORE — Rust · deterministic (D-02)"]
         POS["Position Manager<br/>stops · targets · time-exits"]
-        EXEC["Execution Gateway<br/>risk engine · fill sim · PnL ledger"]
+        EXEC["Execution Gateway<br/>risk engine · algo_id · rate limiter · PnL ledger"]
     end
 
     REDIS[("Redis — THE CONTRACT BOUNDARY<br/>last-value cache + Streams")]
@@ -46,15 +47,12 @@ flowchart TB
     BACKEND(["paper: local fill simulator<br/>live, later: Kite order API"])
 
     KWS --> ING
-    KREST --> QP
     KREST --> BF
     KREST --> INST
 
     INST --> ING
-    SUB <--> ING
     ING --> REDIS
     ING --> QDB
-    QP --> REDIS
     BF --> QDB
     QDB --> DUCK
 
@@ -66,8 +64,6 @@ flowchart TB
 
     INFO --> SCR
     INFO --> RPM
-    INFO --> SUB
-    STUDY --> SUB
     STUDY --> RPM
     SCR --> SPEC
     SPEC --> RPM
@@ -78,26 +74,31 @@ flowchart TB
     EXEC -- "OrderAck · fills · positions" --> REDIS
 ```
 
-**Reading the diagram:** everything below Redis is deterministic Rust; everything above it is LLM-driven Python. The two arrows into the Execution Gateway are the whole safety story — the LLM manager may *open* positions, but only the deterministic Position Manager may be *relied upon* to close them (§2.1).
+**Reading the diagram:** the **Execution Safety Core is the only Rust** (D-02); the data services and the whole cognition plane are Python. The two arrows into the Execution Gateway are the whole safety story — the LLM manager may *open* positions, but only the deterministic Position Manager may be *relied upon* to close them (§2.1).
 
 ## 2. Component responsibilities
 
-### Hot plane (Rust)
+### Execution safety core (Rust) — D-02
 | Component | Responsibility | Key constraint it owns |
 |---|---|---|
-| **Data Ingester** | Own the 3 WebSocket connections, parse binary ticks, normalize, publish to Redis + persist to QuestDB | 3 conns × 3,000 instruments |
-| **Subscription Manager** | Assign instruments to connections and modes; promote/demote tiers on request | 9,000 cap; per-conn 3,000 cap |
-| **Historical Backfill** | Chunked, resumable candle download to QuestDB | 3 req/s |
-| **Quote Poller** | On-demand REST snapshots for instruments not currently streamed | 1 req/s |
-| **Position Manager** | Owns every open position: stops, targets, time-exits, MIS square-off. Emits exit intents deterministically | must act without the LLM |
-| **Paper Execution Engine** | Fill simulator + risk engine + P&L ledger; the *single writer* of orders | mirrors 10/s, 400/min, 5,000/day |
-| **Instruments Loader** | Daily master CSV fetch, identity mapping (`exchange:tradingsymbol` ↔ token) | daily refresh |
+| **Position Manager** | Owns every open position: stops, targets, time-exits, square-off. Emits exit intents deterministically | must act without the LLM |
+| **Execution Gateway** | Risk engine + `algo_id` tagging + calendar-second rate limiter + P&L ledger; the *single writer* of orders | 10/s, 400/min, 5,000/day; algo tagging |
+| **Fill simulator** *(paper backend)* | Matches paper orders to ticks; may be Rust (cohesion) or Python (D-02) | deterministic replay |
+
+### Data services (Python) — D-02, D-16
+| Component | Responsibility | Key constraint it owns |
+|---|---|---|
+| **Data Ingester** | WebSocket for the **~10 held names** (Full mode) + daily bars via REST for screening | trivial under end-of-day cadence |
+| **Historical Backfill** | Chunked, resumable candle download to QuestDB; capture as-of series before adjustments (G-08) | 3 req/s |
+| **Instruments Loader** | Daily master fetch, identity map, **point-in-time snapshots** (G-43, no overwrite) | daily refresh, immutable |
+
+> ⚠️ **Superseded (D-16):** the Subscription Manager's tiered-streaming machinery and the on-demand Quote Poller assumed 9,000 live-streamed instruments. An end-of-day system streams only held names, so both largely fall away — retained in doc 06 §1.3 as intraday reference only.
 
 ### Cognition plane (Python)
 | Component | Responsibility |
 |---|---|
 | **Static Study Fleet** | Offline batch analysis over cached historical data (regime, volatility, breadth, correlation, options OI, events) |
-| **Live Screeners** | High-frequency, cheap-model scanning of the streaming universe to flag candidates |
+| **Screeners** | Cheap-model scan of the **daily-bar** candidate set (post-close), flagging names for deeper look (D-16) |
 | **Specialists** | Deeper analysis of flagged candidates (technical, options/OI, news/event, macro-regime) |
 | **Info-source agents** | News pipeline + central-bank/macro pipeline (independent of Kite limits) |
 | **Risk/Portfolio Manager** | The single decision authority; sizes positions, applies risk limits, emits paper orders |
@@ -129,7 +130,7 @@ This is the same principle doc 07 §1 already applies to risk limits — *determ
 
 ## 3. Data flow (live path)
 
-1. Kite WebSocket → **Rust Ingester** parses binary → normalized tick.
+1. Kite WebSocket → **Python Ingester** (held names) parses binary → normalized tick; daily bars pulled via REST for screening.
 2. Ingester updates **Redis last-value cache** and appends to **Redis Streams** (and QuestDB for history).
 3. **Screeners** consume tick-derived events + cache, flag candidates onto a stream.
 4. **Specialists** consume flags, pull context (cache + QuestDB + news/macro events), produce assessments.

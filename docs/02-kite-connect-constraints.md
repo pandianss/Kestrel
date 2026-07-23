@@ -1,6 +1,6 @@
 # 02 — Kite Connect API Constraints (the load-bearing facts)
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 **Source:** [Kite Connect v3 docs](https://kite.trade/docs/connect/v3/).
 
 **Verification convention used in this document:**

@@ -1,6 +1,6 @@
 # 13 — Decision Log
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 The README says this repo exists to capture design decisions. Until now those decisions were embedded as prose rationale scattered across seven documents, which makes them hard to challenge one at a time — a reviewer who wants to argue against Rust has to reconstruct the argument for it from three places first.
 

@@ -1,6 +1,6 @@
 # 01 — Overview, Goals & Scope
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 ---
 
@@ -27,7 +27,7 @@ Build a multi-agent system that continuously studies the Indian equity and deriv
 
 ### In scope (this design)
 - Live market-data ingestion (WebSocket) and historical backfill.
-- A tiered subscription manager to fit 9,000 instruments across 3 WebSocket connections.
+- A data plane that screens on daily bars and streams live ticks for the held book only *(under D-16; the 9,000-instrument tiered-streaming design is retained as intraday reference in doc 06 §1.3)*.
 - A paper-execution engine (fill simulator + risk engine + margin model + P&L ledger).
 - A **deterministic position manager** owning stops, targets, time-exits, and intraday square-off — the exit path, which runs independently of the agent fleet.
 - A **deterministic replay harness** for fill-fidelity validation, **deterministic-plane** backtests, and incident reproduction (LLM replay is forensics only — doc 07 §4.3.1).

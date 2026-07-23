@@ -1,6 +1,6 @@
 # How to review Kestrel
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 This repo is design documentation for a system that does not exist yet. Its purpose is to be **attacked before it is built**, when a finding costs an edit instead of a rewrite — or a loss.
 

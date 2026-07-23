@@ -1,8 +1,10 @@
 # 08 — Cognition Plane Spec (Python / LLM agents)
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 The cognition plane is where the market is *reasoned about*. It reads normalized data from Redis/QuestDB, never talks to Kite for writes, and never bypasses the risk manager. Orchestrated with LangGraph; agents use Claude (tiered).
+
+> ⚠️ **Cadence superseded by D-16** *(2026-07-23).* Sections below describe the intraday funnel (30-second screening, ~100 decisions/session, a live "Full-mode promotion list"). The current design is **positional/end-of-day**: screen once post-close on daily bars, decide once pre-open, ~1 decision/day. The **arbitration logic (§3.1), instruction-source boundary (§6), and the corrected cost model (§8)** all still hold; the *timing and promotion-list* mechanics do not. The fleet is an **overlay on a documented factor** (D-17) that must beat it net of cost (G-44).
 
 ---
 

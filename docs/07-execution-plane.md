@@ -1,6 +1,6 @@
 # 07 — Execution Plane Spec (Rust)
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 The execution plane is the **single writer** of orders and the guardian of risk. In the paper-first build it writes to a local fill simulator; the same interface later writes to Kite's order API for live trading.
 

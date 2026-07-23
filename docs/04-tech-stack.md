@@ -1,6 +1,6 @@
 # 04 — Technology Stack
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 **Confirmed decision:** Rust (hot plane) + Python (cognition plane).
 
 ---
@@ -77,7 +77,7 @@ Cost and latency are managed by matching model strength to job frequency/stakes:
 - **Kafka for the bus:** heavier than needed at single-host start; Redis Streams (or NATS JetStream) is leaner. Revisit if we outgrow a single host.
 
 ## 7. Stack-level open items (see doc 11)
-- Confirm QuestDB ingest throughput at ~9,000 writes/sec (G-03). Note that doc 06 §6 shows the *byte* volume is trivial — it is the write rate that is unproven, so keep the ingestion path abstract until this is measured (doc 13, D-05).
+- ~~Confirm QuestDB ingest throughput at ~9,000 writes/sec~~ — **no longer required** (D-16): an end-of-day system streams only ~10 held names, so the write rate is trivial. G-03 downgraded 🔴→🟡. QuestDB is now sized for daily bars plus a small held-name tick stream.
 - Confirm LangGraph fits the live latency budget for the screener→specialist→manager funnel (G-10) — now an entry-path performance question only, since exits are deterministic.
 - Pin exact Claude model IDs and estimate monthly token spend under target agent counts (G-11) — the only large or uncertain line in the cost model.
 

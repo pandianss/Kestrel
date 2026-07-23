@@ -1,6 +1,8 @@
 # 05 — Agent Architecture
 
-**Last updated:** 2026-07-22
+> ⚠️ **Written for the intraday design; read through the D-16 lens** *(2026-07-23).* This doc describes the live high-frequency funnel (8–12 screeners scanning a streaming universe, a "Full-mode promotion list," etc.). Under the **positional/end-of-day** decision (D-16), screening is once-daily on daily bars, there is no live tiering to promote into, and the fleet is an **overlay on a documented factor** (D-17), not the primary signal. The *roster and coordination logic* below still hold; the *cadence and promotion-list mechanics* are superseded. See doc 13 D-16/D-17 and doc 08 §8 for the current shape.
+
+**Last updated:** 2026-07-23
 
 > **Core principle (repeated because it governs everything here):** agent count is *not* set by the size of the market. It is set by (a) Kite's per-key rate limits — which force the I/O-facing agents to be effectively one of each — and (b) the LLM latency/token budget on the cognition agents — which has sharply diminishing returns past ~30. Information-source agents (news, macro) are cheap because they never touch Kite's limits, but each earns its place only if its signal reaches a decision and changes an action.
 

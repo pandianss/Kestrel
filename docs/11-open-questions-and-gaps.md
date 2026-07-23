@@ -1,6 +1,6 @@
 # 11 — Open Questions & Known Gaps
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 > **This is the gap-finding target.** These are the things we know are undecided, unverified, or risky. Reviewers should (a) challenge them, (b) add ones we missed, and (c) flag anywhere the rest of the design contradicts itself.
 >

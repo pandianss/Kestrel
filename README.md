@@ -3,7 +3,7 @@
 > **Kestrel** is the project codename. Built on the Zerodha Kite Connect API, it's named for the bird of prey — a cousin of the *kite* — that hovers dead-still to scan a wide field, then stoops on the one target worth striking. That is the system in one image: watch a very wide field, act on very few things, through a single execution gateway.
 
 **Status:** Design / pre-implementation (no code written yet)
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 **Purpose of this repo (for now):** Capture the full architecture and design decisions agreed so far, in a form that can be reviewed by other agents/humans to find gaps *before* any implementation begins.
 
 ---
@@ -12,20 +12,23 @@
 
 A multi-agent platform built on the [Zerodha Kite Connect v3 API](https://kite.trade/docs/connect/v3/) that:
 
-1. **Ingests** live and historical Indian market data (equities + F&O) at large scale — up to **9,000 streamed instruments**, the maximum one API key can carry.
-2. **Studies** the market with a fleet of LLM agents — both *static* (historical/event-driven, offline batch) and *ongoing* (live, streaming-driven).
-3. **Decides** via a funnel of agents (screeners → specialists → a single risk/portfolio manager).
+1. **Screens** a broad Indian equity universe on **daily bars** (end-of-day, positional — not intraday; D-16), starting from a **documented, published market anomaly** (momentum / low-vol / value / quality; D-17) rather than an invented edge.
+2. **Overlays LLM agents** — a funnel of screeners → specialists → a single risk/portfolio manager — as an optional layer that must *beat the factor net of its cost*, not as the strategy itself.
+3. **Holds positions days to weeks**, streaming live ticks only for the ~10 held names so a deterministic Position Manager can manage exits.
 4. **Executes** — initially against a **paper-trading simulator** (no real money), designed to flip to live later with the same interfaces.
 
-> **On "9,000":** that is the ceiling of one API key (3 WebSocket connections × 3,000 instruments), and it is a **large sample, not the whole market**. NSE cash alone runs to roughly 2,000 names and NFO option contracts into the tens of thousands. *Which* 9,000 is an open selection decision with real consequences — see [G-13](docs/11-open-questions-and-gaps.md#g-13).
+> **On breadth:** one API key can *stream* up to 9,000 instruments (3 WS × 3,000), but a positional system **screens on daily bars and streams only what it holds** (D-16), so the live-streaming ceiling barely binds. The open question is *which* universe to screen, not how many to stream — see [G-13](docs/11-open-questions-and-gaps.md#g-13).
 
 The three confirmed product decisions driving this design:
 
-| Decision | Choice |
-|---|---|
-| What it does with decisions | **Paper-trade first** (simulated execution, prove the logic before real money) |
-| Hot-path technology | **Rust + Python** (Rust for the latency-sensitive data/execution planes, Python for the agent/cognition layer) |
-| Instrument universe | **Max (3,000–9,000 instruments)** — uses all 3 WebSocket connections on one API key |
+| Decision | Choice | Ref |
+|---|---|---|
+| Cadence | **Positional / end-of-day** — screen post-close, decide pre-open, hold days–weeks. Not intraday | D-16 |
+| First strategy | A **documented, published anomaly** (momentum / low-vol / value / quality) — evidence that predates our trading, not an invented edge | D-17 |
+| Validation | **Paper-trade first**; the deterministic factor is backtested, the LLM overlay is forward-tested only | D-01, G-42 |
+| Language | **Python default + a small Rust safety core** (execution plane only) — chosen for correctness, not speed | D-02 |
+| Users | **Single operator** + immediate family; not a product | D-13 |
+| Data | **Never destroyed** — appended and tiered, ~$24/yr to keep forever | D-15 |
 
 Full rationale, alternatives, and reversibility for each: **[doc 13 — Decision Log](docs/13-decision-log.md)**.
 
@@ -33,7 +36,7 @@ Full rationale, alternatives, and reversibility for each: **[doc 13 — Decision
 
 ## The one-paragraph version of the safety model
 
-Exactly one LLM agent may **open** a position, and it is never permitted to open one without a defined exit plan. From the moment that position fills, a deterministic Rust component owns it and will close it — on a stop, a target, a time limit, or an intraday square-off — **with no LLM in the path**. If the entire cognition plane dies mid-session, the system stops trading and every open position still exits correctly. Everything else in this design is in service of that sentence.
+Exactly one LLM agent may **open** a position, and it is never permitted to open one without a defined exit plan. From the moment that position fills, a deterministic Rust component owns it and will close it — on a stop, a target, or a time limit — **with no LLM in the path**. If the entire cognition plane dies mid-session, the system stops trading and every open position still exits correctly. Everything else in this design is in service of that sentence.
 
 ---
 
@@ -88,7 +91,7 @@ This design restates external facts that **change without notice**. Three of the
 | 03 | [System Architecture](docs/03-architecture.md) | Two-plane model, components, data flow, entry/exit asymmetry |
 | 04 | [Technology Stack](docs/04-tech-stack.md) | Stack choices + rationale + alternatives |
 | 05 | [Agent Architecture](docs/05-agent-architecture.md) | Full agent roster, counts, coordination, the funnel |
-| 06 | [Data Plane Spec](docs/06-data-plane.md) | Rust ingester, tiering, tick sanity, Redis contract, sizing |
+| 06 | [Data Plane Spec](docs/06-data-plane.md) | **Python** ingest, tick sanity, Redis contract, sizing (tiering is intraday-only) |
 | 07 | [Execution Plane Spec](docs/07-execution-plane.md) | Position manager, fill sim, risk + margin, ledger, replay |
 | 08 | [Cognition Plane Spec](docs/08-cognition-plane.md) | LangGraph orchestration, Claude tiering, static + live fleets |
 | 09 | [Phased Build Plan](docs/09-phased-build-plan.md) | Phases 0–6 with deliverables and exit criteria |

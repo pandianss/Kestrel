@@ -1,6 +1,6 @@
 # 12 — Glossary
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 For reviewers unfamiliar with Kite/Indian-market vocabulary or this project's terms.
 

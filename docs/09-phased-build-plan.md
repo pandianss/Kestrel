@@ -1,6 +1,6 @@
 # 09 — Phased Build Plan
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 **Status:** proposed; **not started** (awaiting go-ahead).
 
 Each phase has deliverables and **exit criteria** — a phase isn't "done" until its exit criteria pass. Phases are mostly sequential but some overlap is noted.
@@ -31,14 +31,16 @@ Each phase has deliverables and **exit criteria** — a phase isn't "done" until
 
 ---
 
-## Phase 1 — Data plane (Rust ingester) — *first real milestone*
+## Phase 1 — Data plane (Python) — *not the first milestone any more*
+
+> ⚠️ **Re-sequenced (D-09 / D-16 / D-02):** the factor backtest and vertical slice come first (see "Recommended starting point"). The data plane is now **Python** (D-02), and under end-of-day cadence it streams only held names — so this is a modest component, not the hardest-scale milestone it once was.
 **Goal:** live market data flowing and stored.
-- WebSocket ingester: 3 connections, subscription manager, tiered modes.
+- WebSocket ingester (**Python, D-02**): the held-book stream (Full mode) plus daily-bar REST pulls for screening. The 3-connection / tiered-mode machinery is intraday-only and not built for the end-of-day design.
 - Binary parser → canonical `Tick` → **tick sanity filter** → Redis cache + Redis Streams + QuestDB.
 - Reconnection, gap detection, 403 handling, metrics.
 - **Tick capture + deterministic replay harness (doc 07 §4.3)** — every subsequent phase depends on it: fill-fidelity validation (G-09), look-ahead-safe **deterministic-plane** backtests (G-23), risk-engine regression tests, and incident reproduction. ⚠️ It does **not** backtest the agent fleet (G-42). It is built here because this is where its input first exists.
 
-**Exit criteria:** stream a few hundred instruments in mixed modes for a full session with **zero silent drops**, auto-reconnect verified, tick-to-cache p99 < 5 ms, and QuestDB ingest keeping up. A captured session **replays byte-identically**. Then scale toward the 9,000 target and **measure** ingest throughput, tick cadence, open-bell burst multiple, compression ratio, and disk growth (validates doc 11, G-03/G-04, and confirms the doc 06 §6 estimate).
+**Exit criteria (rescoped for D-16):** stream the **held book (~10 names) plus a few test instruments** for a full session with **zero silent drops** and verified auto-reconnect; pull daily bars for the screening universe via REST; a captured session **replays byte-identically across the hot plane**. ⚠️ The old "scale toward 9,000, p99 < 5 ms" criterion is **dropped** — an end-of-day system never live-streams the universe (G-03 downgraded 🔴→🟡).
 
 ---
 
@@ -53,7 +55,7 @@ Each phase has deliverables and **exit criteria** — a phase isn't "done" until
 
 ---
 
-## Phase 3 — Paper execution engine (Rust)
+## Phase 3 — Paper execution engine (Rust safety core — D-02)
 **Goal:** a trustworthy paper broker.
 - `OrderIntent`/`OrderAck` interface (including `market_protection`, `intent_kind`, and the mandatory `exit_plan`); fill simulator (slippage/latency/partials) vs. live ticks.
 - Deterministic risk engine + kill-switch; **margin model** (doc 07 §3.1); P&L ledger with the dated Indian cost model **including the auto-square-off charge**.
@@ -64,7 +66,7 @@ Each phase has deliverables and **exit criteria** — a phase isn't "done" until
 
 **Additional exit criteria for the exit path — all must pass with Python stopped:**
 - A stop-loss fires and fills with every cognition-plane process killed.
-- An MIS position auto-squares before the broker's cut-off, and the ₹50 + GST charge appears in the ledger.
+- *(If MIS is ever used)* an MIS position auto-squares before the broker's cut-off with the ₹50 + GST charge in the ledger. ⚠️ Under D-16 the default is **CNC/NRML**, so the primary exit-path test is a **stop firing on the held book with the cognition plane killed**, and overnight-gap handling (G-18).
 - A simulated feed outage triggers the configured `on_data_loss` behaviour per product.
 - An exit is accepted while the account is over its exposure cap and while the kill-switch is tripped (risk checks must not block risk reduction).
 - A margin breach trips the kill-switch.
@@ -73,10 +75,10 @@ Each phase has deliverables and **exit criteria** — a phase isn't "done" until
 
 ## Phase 4 — Static study fleet (cognition)
 **Goal:** the offline "study the market" capability.
-- LangGraph batch fleet (8–24 agents) over cached data → ranked watchlist + regime priors + **Full-mode promotion list** consumed by the subscription manager.
-- Reproducible, look-ahead-safe runs.
+- LangGraph batch fleet over cached data → ranked watchlist + regime priors. ⚠️ *No "Full-mode promotion list" under D-16* — there is no live tiering to promote into; the watchlist feeds the **next-morning decision**, and only *held* names are streamed.
+- Reproducible, look-ahead-safe runs. **This fleet is an overlay on the documented factor (D-17), not the primary signal.**
 
-**Exit criteria:** a nightly run produces a stable, explainable watchlist + promotion list; promoting those instruments to Full mode the next morning works end-to-end.
+**Exit criteria:** a nightly run produces a stable, explainable watchlist + regime priors that measurably improve on the factor-alone baseline (else it does not earn its token cost — G-44).
 
 ---
 

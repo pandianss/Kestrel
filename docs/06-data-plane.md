@@ -1,6 +1,6 @@
 # 06 — Data Plane Spec (Rust)
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 The data plane owns everything that reads from Kite's market-data surfaces and turns it into normalized, queryable state. No LLM here.
 
