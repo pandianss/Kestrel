@@ -113,18 +113,21 @@ Each phase has deliverables and **exit criteria** — a phase isn't "done" until
 
 ---
 
-## Recommended starting point
+## Recommended starting point — revised 2026-07-23 for D-16 / D-17
 
-**Phase 0 + Phase 1** — foundations plus the Rust data-plane ingester. This de-risks the hardest scale question (9,000-instrument ingest) earliest, and Phase 0 now front-loads the compliance questions that could invalidate the whole approach.
+The original "Phase 0 + Phase 1: build the 9,000-instrument ingester first" is **no longer the right start.** D-16 (end-of-day positional) removes the 9,000-instrument live-ingest problem that Phase 1 existed to de-risk, and D-17 (documented factor) gives a concrete, deterministic strategy to build *before* any of it. D-09 is now settled: **strategy-first.**
 
-### ⚠️ But consider the thin vertical slice first
+The strategy-first sequence:
 
-Doc 11's own meta-question 1 asks whether building 9,000-instrument infrastructure before proving any strategy is the right order. Two of this review's findings argue that it is not:
+1. **Phase 0 essentials** — repo, config, secrets, the Redis contract, **and the point-in-time snapshotter** (G-43, losing data every day it doesn't exist). No static IP needed yet; the compliance answers are in.
+2. **The factor backtest** — pick a documented anomaly (D-17), pull point-in-time daily bars, model Indian costs (doc 07 §5.1), and answer *"does this edge survive here?"* **before any live wiring.** Deterministic, cheap, and it is where a real edge is either found or ruled out. This is the highest-information, lowest-cost work in the project.
+3. **The vertical slice** — one instrument, the factor rule, the real fill simulator and Position Manager, no LLMs. Exercises the exit path, margin, and cost model end-to-end. Now runs a *researched* strategy, so its paper results mean something.
+4. **The end-of-day live plane** — daily screen, pre-open decide, live-stream only held names. Small, because D-16 made it small.
+5. **The LLM overlay — last, and only if it earns its cost** (G-44): does factor + agents beat factor alone, net of tokens?
 
-- **The missing exit path (former G-28)** and **the missing margin model (former G-29)** were both invisible from the architecture. They surface the moment you carry *one* position on *one* instrument end-to-end.
-- Both are 🔴, and both would have invalidated paper results produced by the full build.
+⚠️ **The two 🔴 gaps this review found** — no exit path (G-28), no margin model (G-29) — were invisible in documents and surface on the first real position. Steps 2–3 hit them early and cheaply, which is the whole point of going strategy-first.
 
-A **Phase 0.5** — one instrument, one hard-coded strategy, real ticks, the real fill simulator, the real Position Manager, no LLMs at all — would cost days rather than weeks and would exercise the entire risk spine. Scale is a known engineering problem; the lifecycle correctness this exposes is not. Recommended, but an owner decision (doc 13, D-09).
+⚠️ **A Python-only build is now viable** (D-02 re-opened): with no 9,000-instrument ingest, the Rust case shrinks to a small safety core. Decide D-02 before committing to two toolchains — it may be one.
 
 ## Dependencies at a glance
 ```

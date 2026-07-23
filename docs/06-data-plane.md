@@ -24,6 +24,9 @@ The data plane owns everything that reads from Kite's market-data surfaces and t
 - Handle heartbeats; detect stale connections; auto-reconnect with resubscription.
 
 ### 1.3 Subscription Manager (tiered modes)
+
+> ⚠️ **Largely superseded by D-16 (2026-07-23).** A positional end-of-day system **screens on daily candles** (historical API) and **live-streams only the ~10 held names** — so the elaborate 9,000-instrument tiering, promotion/demotion, and hysteresis machinery below is mostly *not needed*. It is retained for reference and for the case where intraday streaming is ever reintroduced, but the live-plane design a positional system actually builds is far smaller: stream the held book in Full mode, poll everything else from daily bars. Read the rest of this section as "what an intraday design would require," not "what we are building first."
+
 This is the key mechanism for fitting 9,000 instruments into a sane bandwidth/CPU budget.
 
 - **Tiers:**

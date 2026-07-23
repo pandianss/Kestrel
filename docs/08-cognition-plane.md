@@ -113,6 +113,11 @@ Those are decision-quality questions, and they remain **G-21, OPEN**.
 
 **Why it exists:** the only signal that *anticipates* discontinuous (gap) moves; every price-based agent is reactive. **Free against Kite limits** (independent source).
 
+⚠️ **2026-07-23 — reconsider under D-16.** An end-of-day system cannot react to an intraday headline: an 11 a.m. catalyst is seen at close or the next morning. That removes most of this pipeline's *timing* value. Two things it still does under a positional cadence:
+- **Overnight event awareness** — flagging results/earnings/corporate-action dates on held names *feeds the gap-risk de-risk* (G-18), which is now the dominant danger. This is arguably more valuable than before, just for a different reason.
+- **Slow catalyst context** for the next-morning decision.
+But at ~$1,250/yr it is now the **largest single LLM line** in a ~$2,200 total (G-11). **It must justify that cost against its narrowed role** — quite possibly reduced to a cheap calendar-driven event flag rather than a full ingest+classify+impact pipeline. Decide before Phase 4.5.
+
 **Stages (mirrors screener→specialist):**
 1. **Ingest + dedupe + entity-resolve** — fetch from sources (see below), collapse the same story from N sources into one event, and **map headline → instrument token** via the instruments master.
 

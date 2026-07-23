@@ -40,6 +40,8 @@ Build a multi-agent system that continuously studies the Indian equity and deriv
 - **The trading strategy / alpha itself.** This design is *plumbing*: it can carry any strategy. The specific edge is **not defined here** and is flagged as the biggest open gap (doc 11, Gap G-01).
 - **Options pricing/greeks engine, portfolio optimizer, and tax/accounting** — may come later; not in the initial build.
 - **A user-facing UI** beyond operational dashboards.
+- **Intraday trading.** Kestrel is a **positional / end-of-day system** (doc 13, D-16): screen post-close on daily bars, decide pre-open, hold days to weeks. No MIS, no intraday reaction. The dominant risk is the **overnight gap**, not the intraday move.
+- **An invented edge.** The first strategy is a **documented, published market anomaly** — momentum, low-vol, value, quality — chosen for its decades of out-of-sample evidence, not designed for this system (D-17). It resolves the shape of G-01, not yet the specific factor.
 - **Multiple brokers.** Kite/Zerodha only.
 - **Multi-user anything.** This is a **single-user application** — one operator trading their own account, extendable to immediate family under the regulatory carve-out (doc 13, D-13). No accounts, no auth, no multi-tenancy, no public API. Serving anyone else would make us an *algo provider* requiring exchange empanelment (doc 02 §9.4).
 

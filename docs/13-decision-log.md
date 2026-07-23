@@ -22,13 +22,15 @@ This log records each significant decision once: what was decided, what else was
 | [D-06](#d-06) | Single LLM risk manager as sole entry authority | FIRM | MODERATE |
 | [D-07](#d-07) | Exits are deterministic, never LLM-dependent | FIRM | MODERATE |
 | [D-08](#d-08) | Production data read-only + local simulator | FIRM | MODERATE |
-| [D-09](#d-09) | Build order: infrastructure before strategy | **OPEN** | EXPENSIVE later |
+| [D-09](#d-09) | Build order: **strategy-first vertical slice** (resolved by D-16/D-17) | FIRM | — |
 | [D-10](#d-10) | Claude model tiering across the funnel | PROVISIONAL | CHEAP |
 | [D-11](#d-11) | Single-host Docker Compose to start | PROVISIONAL | MODERATE |
 | [D-12](#d-12) | Manager arbitrates by formula, not judgement | PROVISIONAL | CHEAP |
 | [D-13](#d-13) | **Single-user application** (self + immediate family) | FIRM | CHEAP in code, EXPENSIVE in regulation |
 | [D-14](#d-14) | Mathematical formalisation of execution physics, margin & aggregation | FIRM | CHEAP |
 | [D-15](#d-15) | **No destruction of data** — append, tier, never delete | FIRM | Impossible retroactively |
+| [D-16](#d-16) | **Positional / end-of-day**, not intraday | FIRM | MODERATE |
+| [D-17](#d-17) | **First strategy is a documented anomaly**, not invented | FIRM (approach) | CHEAP |
 
 ---
 
@@ -64,7 +66,9 @@ This log records each significant decision once: what was decided, what else was
 
 **Why we are keeping it anyway:** the hot plane is also where the *safety* code lives — the Position Manager, the risk engine, the kill-switch. Those benefit from predictable latency and strict typing regardless of universe size, and rewriting them later means rewriting the parts it is most dangerous to get wrong. Related: D-09.
 
-**Status:** FIRM · **Reversibility:** EXPENSIVE.
+**⚠️ Re-opened by D-16 (2026-07-23).** The throughput half of this decision's rationale — *"~9,000 writes/sec is demanding"* — **no longer holds.** An end-of-day positional system screens on daily bars and streams only the ~10 held names, so the parse/ingest load is trivial. The Rust case now rests **only** on safety-critical determinism (Position Manager + risk engine), which is a small, well-bounded surface — not the full hot plane. A **Python-only build is now a serious contender**, with a narrow Rust core (or none) for the exit path. Downgraded from FIRM to **PROVISIONAL** pending that reassessment; it is the most consequential open decision after G-01.
+
+**Status:** ~~FIRM~~ **PROVISIONAL** *(D-16 removed its main pillar)* · **Reversibility:** EXPENSIVE if built, CHEAP to reconsider before building.
 
 ---
 
@@ -82,7 +86,9 @@ This log records each significant decision once: what was decided, what else was
 
 **⚠️ Marked PROVISIONAL deliberately.** Doc 09 Phase 1 starts at a few hundred instruments and scales up. If the eventual strategy needs 300 names, this decision quietly disappears and takes most of the complexity with it. Nothing should be built that *requires* 9,000.
 
-**Status:** PROVISIONAL · **Reversibility:** CHEAP downward (subscribe to fewer), expensive upward.
+**⚠️ Further weakened by D-16 (2026-07-23).** Under an end-of-day cadence, "universe" means *screened on daily candles*, not *live-streamed*. Screening 9,000 daily bars is cheap and needs no WebSocket capacity at all — only the ~10 held names are streamed live. The 3-connection / 9,000-instrument live-streaming architecture is now **almost entirely unused** by a positional system. Keep the *breadth of screening*; drop the *breadth of streaming*.
+
+**Status:** PROVISIONAL · **Reversibility:** CHEAP downward (subscribe to fewer), expensive upward. D-16 makes downward the likely direction.
 
 ---
 
@@ -170,19 +176,22 @@ This log records each significant decision once: what was decided, what else was
 
 <a id="d-09"></a>
 
-## D-09 — Build order: full infrastructure before a strategy
+## D-09 — Build order: strategy-first vertical slice
 
-**Status: OPEN.** Recorded because it *is* a decision the project has been making by default, without having been made explicitly.
+**Status: FIRM** *(resolved 2026-07-23 by D-16 + D-17).* This sat OPEN because the project had been making it by default. D-16 (positional) and D-17 (documented factor) settle it: there is now a concrete strategy to build *first*, and it is deterministic.
 
-**Currently implied:** build the full 9,000-instrument data plane, execution engine, and agent fleet, then define a strategy (G-01) before Phase 5.
+**Decided:** build the **deterministic factor spine first**, prove it on historical data, then add the live plane and (only if it earns its cost) the LLM overlay. Not "infrastructure then strategy" — **strategy then the infrastructure it actually needs.**
 
-**Alternative:** a thin vertical slice first — one instrument, one hard-coded strategy, real ticks, real simulator, real Position Manager, no LLMs — then scale.
+The sequence that falls out:
 
-**Evidence for the slice** *(2026-07-22)*: the review found **two 🔴 gaps that were invisible at the architecture level** — no exit path (G-28) and no margin model (G-29). Both would have surfaced within a day of carrying one real position end-to-end. Both would have invalidated paper results produced by the full build. Scale is a known engineering problem; lifecycle correctness is not, and it is not discoverable by reading documents — which is exactly what this review demonstrated.
+1. **The documented factor as a backtest** (D-17) — deterministic, over point-in-time historical bars (G-43). Answers "does this edge survive Indian costs?" before any live wiring. First real deliverable.
+2. **The vertical slice** — one instrument, the factor rule, real simulator, real Position Manager, no LLMs. Exercises the risk spine end-to-end.
+3. **The end-of-day live plane** — daily screen, pre-open decide, live-stream only held names (D-16). Much smaller than the original 9,000-instrument design.
+4. **The LLM overlay, last and optional** — added only where it can be shown to beat the factor net of its cost (G-44).
 
-**Evidence against:** the slice does not de-risk the hardest *engineering* question (ingest at 9,000), and some of its work is throwaway.
+**Why this is now obvious rather than a judgement call:** the two 🔴 gaps this review found (no exit path G-28, no margin model G-29) were invisible in documents and appear on the first real position — argument for a slice. D-17 adds that the slice now has a *researched* strategy to run rather than a hard-coded placeholder, so its results mean something. And D-16 removes the "but the slice doesn't de-risk 9,000-instrument ingest" objection — under end-of-day, that ingest problem **no longer exists** (G-03).
 
-**Recommendation:** insert a Phase 0.5 vertical slice. Days, not weeks, and it exercises the entire risk spine. **Owner decision — this is the single highest-leverage sequencing choice remaining.**
+**Status:** FIRM · **Reversibility:** the ordering is cheap to hold to; deviating (building the fleet before the factor is proven) is the expensive mistake it exists to prevent.
 
 ---
 
@@ -269,6 +278,93 @@ This log records each significant decision once: what was decided, what else was
 **Why PROVISIONAL:** option 3 (hybrid) has not been properly evaluated, and the cost implication for D-10 is unresolved. Revisit once there is enough paper history to measure whether the formula's calls differ meaningfully from an LLM's on the same inputs — that comparison is cheap to run and would settle this.
 
 **Status:** PROVISIONAL · **Reversibility:** CHEAP — the aggregation step is one component behind a stable interface, and both alternatives consume the same specialist outputs.
+
+---
+
+<a id="d-17"></a>
+
+## D-17 — The first strategy is a documented, published anomaly — not an invented edge
+
+**Status: FIRM (as an approach).** *(Owner directive: "research-backed intervention," 2026-07-23.)* The specific factor is still to be chosen (G-01 stays open), but **how** the first edge is chosen is now decided.
+
+**Decided:** the first strategy Kestrel trades will be a **well-documented, peer-reviewed market anomaly with decades of published out-of-sample evidence** — not a novel edge invented for this system, and not an LLM-discovered pattern.
+
+**Alternatives:** invent a strategy (what the docs implied — the highest-risk path, no prior evidence); let the LLM fleet *find* an edge (G-42 makes this unvalidatable — you cannot backtest it, and the model has seen the history); buy a signal from a vendor (recurring cost, black box, and empanelment questions).
+
+### Why this is the right first move — and why it fits everything else
+
+**It is the only path with evidence that predates our own trading.** G-42 established the hard constraint: the LLM plane cannot be backtested — the model has seen the test period, and forward-testing takes years. A **published anomaly sidesteps this entirely**, because the evidence already exists, was generated out-of-sample across decades and markets, and does not depend on us re-running anything through an LLM. It is the one kind of edge you can have real confidence in *before* committing capital.
+
+**It is deterministic, which four other decisions already want.** A documented factor — momentum, low-volatility, value, quality, size — is a **rule over historical bars.** It lives in the deterministic plane, where:
+- it **can** be backtested conventionally (G-42);
+- it is **white-box describable** if registration is ever needed (G-41);
+- it is the **cheapest** part to run (G-11 — no per-decision LLM cost);
+- it is the **only rigorously validatable** part (G-42 again).
+
+**It gives the LLM fleet a job it can actually be measured against.** Instead of the agents *being* the strategy (unvalidatable), the documented factor is the baseline and the agents are an **overlay that must beat it** — better entry timing, regime filtering, avoiding value traps. Now "do the LLMs add anything?" has a concrete answer: *do they beat the factor alone, net of their cost?* That is a forward test with a control, which is worth far more than a forward test without one.
+
+### Candidate anomalies (all documented, all positional — fit D-16)
+
+| Anomaly | Evidence base | Why it fits |
+|---|---|---|
+| **Cross-sectional momentum** | Jegadeesh–Titman 1993 and ~30 yrs of replication across markets incl. India | Positional (3–12 month holds), rule-based, works on daily bars |
+| **Low-volatility** | Extensively documented; the "low-vol anomaly" | Lower drawdown, suits a single operator with no on-call (D-13) |
+| **Value (P/B, P/E)** | Fama–French and successors | Slow, positional, deterministic to compute |
+| **Quality (profitability, low accruals)** | Novy-Marx and others | Combines well with value; fundamental data, low turnover |
+
+⚠️ **All of these are documented in *developed* markets primarily.** Indian-market persistence must be checked — some factors travel, some don't, and transaction costs here (doc 07 §5.1) are higher. That check is itself a deterministic backtest, and it is the **first concrete Phase 2 deliverable** now that a strategy shape exists.
+
+### What it costs / limits
+
+- **Documented factors are crowded.** Their published Sharpe is lower now than at discovery — decades of capital have chased them. The realistic expectation is a **modest, positive, well-evidenced edge**, not a large one. This is a feature: it is honest, and it is what the risk envelope (G-18) should be sized against. Anyone expecting outsized returns from a known factor has misunderstood what "documented" means.
+- **It does not resolve G-01, only shapes it.** The specific factor, the universe it applies to, rebalance frequency, and long-only vs long/short are still choices. But they are now choices *within a researched frame*, not invention from nothing.
+- **The factor may not survive Indian costs and liquidity.** If the Phase 2 backtest shows it doesn't, that is a real and useful negative result — far better learned on historical data than with capital.
+
+**Status:** FIRM as an approach · **Reversibility:** CHEAP — the strategy is a pluggable module by design (G-01's original direction); swapping or adding factors is expected.
+
+---
+
+<a id="d-16"></a>
+
+## D-16 — Positional, end-of-day system — not intraday
+
+**Status: FIRM.** *(Owner decision, 2026-07-23.)*
+
+**Decided:** Kestrel is a **positional (swing) system on an end-of-day cadence.** It screens on completed daily bars after close, decides pre-open, and holds positions for **days to weeks**. It is explicitly **not** intraday.
+
+- **Screening:** once per day, post-close, on the day's settled bars.
+- **Decision:** once per day, pre-open, on the resulting candidates.
+- **Position Manager:** runs live all session, but **only on held positions** (~10, per G-39) — evaluating stops, targets, and time-exits against the live feed.
+
+**Alternatives:** intraday MIS (the original implied design — 30-second screening, ~100 decisions/session); higher-frequency swing (hourly screening); pure buy-and-hold (no active exits).
+
+### Why — four independent pressures, all pointing here
+
+This is the same convergence that G-11, G-41, G-42 and G-44 kept surfacing, now made explicit:
+
+1. **Cost.** Screening every 30 s costs ~$27,750/yr; end-of-day costs ~$2,200/yr — **13× cheaper** (G-11 model). The agent funnel alone drops to ~$350/yr.
+2. **Unit economics (G-44).** The fleet's break-even capital falls from **₹6.1 cr to ₹0.48 cr** — from "needs a fund" to "works on a retail account."
+3. **The LLM does what it is good at.** Considered analysis on settled data, overnight, with no latency pressure — not reflex judgement in a 30-second loop. This is the single biggest lever on decision *quality*, separate from cost.
+4. **It removes most of the 🔴 engineering risk** (see the cascade below).
+
+### What it changes — the cascade
+
+| Area | Intraday assumption | Under D-16 |
+|---|---|---|
+| **Data plane (G-03 🔴)** | Stream 9,000 instruments at ~9,000 writes/s into QuestDB | **Screen 9,000 on daily candles** (historical API); **stream only the ~10 held**. The hardest scale gap largely dissolves |
+| **Universe (D-03)** | 9,000 live-streamed | 9,000 *screened* on daily bars; a few hundred is plenty. D-03's live-streaming justification weakens further |
+| **Hot-plane throughput (D-02)** | Rust justified by 9,000-instrument parse load | ⚠️ **That justification evaporates.** The Rust case now rests only on safety-critical determinism (Position Manager, risk engine) — a much smaller surface. **D-02 must be revisited** |
+| **Storage / tiering (G-04, G-31)** | ~5 GB/day of ticks | Orders of magnitude less — daily bars for the universe, ticks only for held names |
+| **Products (G-18, G-30)** | MIS intraday | **CNC delivery / NRML carry.** No 3:25 square-off, no ₹50 charge — but **overnight gap risk that stops cannot protect against**. G-18's envelope needs rewriting for gaps |
+| **News pipeline (doc 08 §4)** | Real-time catalyst reaction | Largely lost — an 11 a.m. catalyst is seen at close. ⚠️ It is now the **largest single LLM line** (~$1,250/yr of a ~$2,200 total); **question whether it earns its place** |
+
+### What it costs
+
+**1. Overnight gap risk becomes the dominant danger.** An intraday stop is a floor you can act on; a gap through it overnight is not. The G-18 envelope must size for gaps, not for intraday stop distance — smaller positions, or explicit gap-risk budgeting. This is the real price of leaving intraday.
+
+**2. Evidence accumulates slowly (G-42).** At ~250 decisions/year instead of 25,000, forward validation — the *only* validation the LLM plane can have — takes **years, not months** to separate skill from luck. Phase 6's "N stable sessions" is now measured in years. This is inherent to trading less often, not a flaw, but it must be planned for.
+
+**Status:** FIRM · **Reversibility:** MODERATE — cadence is config, but it interacts with product choice (CNC vs MIS) and the whole data-plane sizing, so a later reversal to intraday reopens G-03 and D-02.
 
 ---
 

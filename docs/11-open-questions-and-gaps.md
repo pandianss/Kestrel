@@ -15,9 +15,9 @@
 
 | ID | Sev | Status | Area | Summary | Resolve by |
 |---|---|---|---|---|---|
-| [G-01](#g-01) | 🔴 | OPEN | Strategy | No trading strategy exists | Before Phase 5 |
+| [G-01](#g-01) | 🔴 | **IN DESIGN** | Strategy | **Documented-anomaly frame set** (D-17); specific factor open | Before Phase 2 backtest |
 | [G-02](#g-02) | 🟠 | **IN DESIGN** | Regulatory | SEBI framework — **not an algo provider** ✅; **downgraded 🔴→🟠** | **Phase 0** |
-| [G-03](#g-03) | 🔴 | OPEN | Data | QuestDB ingest at 9,000-instrument volume unmeasured | Phase 1 |
+| [G-03](#g-03) | 🟡 | **IN DESIGN** | Data | QuestDB ingest — **largely dissolved by D-16** (stream only held names) | Phase 1 |
 | [G-09](#g-09) | 🔴 | **IN DESIGN** | Execution | Fill fidelity — conservative defaults + replay now specified | Phase 3 |
 | [G-18](#g-18) | 🔴 | OPEN | Risk | Risk limits — **starting envelope proposed** | Phase 3 |
 | [G-28](#g-28) | 🔴 | **IN DESIGN** | Execution | **No exit path existed** — Position Manager added | Phase 3 |
@@ -37,7 +37,7 @@
 | [G-31](#g-31) | 🟠 | **IN DESIGN** | Ops | Redis streams — **caps now sized (~100 MB)** | Phase 0 |
 | [G-32](#g-32) | 🟠 | **CLOSED** | Testing | **Replay harness** — now a Phase 1 deliverable | — |
 | [G-33](#g-33) | 🟠 | **IN DESIGN** | Data | **Bad-tick filter** — gate specified, thresholds open | Phase 1 |
-| [G-30](#g-30) | 🟠 | **IN DESIGN** | Execution | **MIS square-off** unmodelled — now specified | Phase 3 |
+| [G-30](#g-30) | 🟡 | **IN DESIGN** | Execution | MIS square-off — **mostly moot under D-16** (CNC/NRML); model if MIS ever used | Phase 3 |
 | [G-14](#g-14) | 🟡 | OPEN | Strategy | Profitability metrics need G-01 | After G-01 |
 | [G-15](#g-15) | 🟠 | **ACCEPTED** | Regulatory | Storage **proceeding** (not shared); display/India/termination limits stand | — |
 | [G-16](#g-16) | 🟡 | **CLOSED** | Data | Bandwidth — ~2 Mbps, a non-issue | — |
@@ -56,11 +56,11 @@
 | [G-38](#g-38) | 🟠 | OPEN | Risk | **SPAN Grid Computation Latency** under multi-leg F&O | Phase 3 |
 | [G-40](#g-40) | 🟠 | OPEN | Regulatory | **Exchange holds a kill switch on our Algo ID** | Before live |
 | [G-41](#g-41) | 🟠 | OPEN | Regulatory | **LLM strategy likely "black box"** — 10 OPS effectively permanent | If >10 OPS contemplated |
-| [G-44](#g-44) | 🔴 | OPEN | Cost | **Agent fleet may not pay for itself** at single-user scale | Before Phase 4 |
-| [G-42](#g-42) | 🔴 | OPEN | Research | **LLM strategies not backtestable** — forward-test only | Before Phase 4 |
+| [G-44](#g-44) | 🟠 | **IN DESIGN** | Cost | **D-16 moved break-even to ₹0.48 cr**; now a per-tier cost test | Per agent tier |
+| [G-42](#g-42) | 🟠 | **IN DESIGN** | Research | Not backtestable, but **D-17 gives a control** (beat the factor?) | Ongoing forward test |
 | [G-43](#g-43) | 🟠 | OPEN | Research | **Point-in-time reference data not captured** — unrecoverable | **Phase 0** |
 
-**Where the register stands:** 44 gaps — **9 blockers, 26 significant, 9 to firm up**; by status **13 OPEN, 19 IN DESIGN, 4 CLOSED, 3 ACCEPTED**.
+**Where the register stands:** 44 gaps — **6 blockers, 26 significant, 12 to firm up**; by status **13 OPEN, 23 IN DESIGN, 4 CLOSED, 4 ACCEPTED**.
 
 **The regulatory blocker is gone.** G-02 dropped 🔴 → 🟠 once algo-provider status was resolved — **no remaining regulatory question threatens the architecture.** Of the seven blockers left, **six are engineering** (G-03, G-09, G-28, G-29, G-36 and the G-18 sign-off) and exactly one is a product question: **G-01, there is still no strategy.**
 
@@ -76,14 +76,21 @@
 
 <a id="g-01"></a>
 
-### G-01 🔴 — There is no trading strategy yet
-**Status:** OPEN · **Resolve by:** before Phase 5
+### G-01 🔴 — No trading strategy yet — but now a researched frame
+**Status:** **IN DESIGN** · **Resolve by:** pick the specific factor before Phase 2 backtest
 
 The entire design is **strategy-agnostic plumbing**. It can carry *a* strategy but defines *none*. What constitutes an edge — entry/exit logic, signals, holding periods, instruments, long/short, cash vs. F&O — is undefined.
 
 *Why it matters:* everything downstream (which specialists, which risk limits, success metrics, universe selection) depends on it. A perfect pipeline with no edge loses money net of costs.
 
-*Proposed direction:* treat the first strategy as a **pluggable module** the risk manager consumes; define at least one concrete, testable strategy before Phase 5.
+*Direction (2026-07-23 — materially narrowed by D-16 and D-17):* the first strategy is a **documented, published market anomaly** (momentum / low-vol / value / quality), traded **positionally on an end-of-day cadence**. Still a pluggable module, but no longer invented from nothing.
+
+**Why this de-risks the largest gap without closing it:**
+- A published factor has **decades of out-of-sample evidence that predates our trading** — the one kind of edge you can trust before risking capital, and the only kind that sidesteps G-42 (the LLM plane cannot be backtested; a factor rule can).
+- It is **deterministic** — it lives in the plane that is cheap (G-11), describable (G-41), and rigorously validatable (G-42). The LLM fleet becomes an *overlay that must beat the factor*, which finally gives the agents a measurable job.
+- The realistic edge is **modest** — documented factors are crowded and their Sharpe has decayed. That is honest, and it is what G-18 should be sized against.
+
+*What is still open:* the specific factor, its universe, rebalance frequency, and long-only vs long/short. And ⚠️ **whether the factor survives Indian transaction costs and liquidity** (doc 07 §5.1) — a deterministic backtest, now the first concrete Phase 2 deliverable.
 
 *2026-07-22 note:* the exit-path and margin gaps below (G-28, G-29) strengthen the case for a thin vertical slice first — both were invisible at the architecture level and would have surfaced immediately from carrying one real position. See doc 09, "thin vertical slice."
 
@@ -408,6 +415,12 @@ These are **not decisions** — they are defensible defaults, put on the table b
 - **The daily loss limit and per-order cap must be consistent.** At 2% per order and −3% daily, roughly 1.5 maximum-size losers trip the switch. If that feels too tight, the per-order cap is what should move, not the kill-switch — the kill-switch is the backstop and should not be the flexible number.
 
 ⚠️ **Sizing method is still genuinely open** and is the one item here I'd resist defaulting: fixed-fractional, volatility-parity, and Kelly-derived sizing produce very different books from the same signals, and the right answer depends on the strategy (G-01). Left blank deliberately.
+
+⚠️ **2026-07-23 — D-16 changes the dominant risk from intraday stop-out to overnight gap.** A positional/CNC system holds through the close, so a stop is **no longer a floor you can act on** — a gap through it overnight fills at the open, wherever that is. The envelope above was implicitly intraday. It must be re-derived for gaps:
+- **Per-position risk should be sized against a plausible overnight gap** (e.g. 2–3× the typical daily range on the name), not the intraday stop distance. This means **smaller positions** than intraday sizing suggests.
+- **Overnight/gap exposure needs its own cap** — total capital exposed to the next open, separate from gross exposure, since that is the loss that cannot be stopped.
+- **Event-window de-risk (doc 08 §5) matters more, not less** — earnings and results dates are where gaps cluster, and a positional book is exposed to every one it holds through.
+- The MIS-specific rows (square-off, ₹50 charge) fall away under CNC/NRML (G-30).
 
 <a id="g-19"></a>
 
@@ -744,7 +757,9 @@ From doc 08 §8's model (≈$28,000/yr full fleet, ≈$9,000/yr lean), at a **20
 
 **Sequencing that falls out of this:** build the deterministic spine, prove it, measure its return — *then* add agents incrementally and require each tier to earn its cost. Which is D-09's thin vertical slice, reached by a completely independent route.
 
-⚠️ *The return assumption is doing real work here and there is no strategy yet (G-01).* But the **structure** holds regardless: fixed cost against capital-scaled profit always produces a threshold. Only its position moves.
+✅ **2026-07-23 — D-16 moves the threshold into reach.** End-of-day cadence cuts the fleet from ~$28k/yr to ~$2.2k/yr (13×), so the break-even capital falls from **₹6.1 cr to ₹0.48 cr** and the <20%-of-profit line to ~₹2 cr. The agent fleet can now clear its hurdle on a normal retail account rather than needing a fund. And D-17 sequences it correctly — the deterministic factor runs first at near-zero LLM cost, with agents added only once they demonstrably beat it (G-42). **G-44 is no longer a blocker to the design existing; it becomes a per-tier "does this agent earn its cost" test.**
+
+⚠️ *The return assumption is doing real work here and there is no measured edge yet (G-01), though D-17 now frames it.* But the **structure** holds regardless: fixed cost against capital-scaled profit always produces a threshold. D-16 moved the threshold; it did not remove it.
 
 <a id="g-42"></a>
 
@@ -799,6 +814,8 @@ The architecture already draws the right line — it just wasn't being used for 
 *Direction:* write the missing backtest spec, but scope it honestly to the deterministic plane — pre-registration, hold-out, walk-forward, multiple-comparison discipline, and a stated protocol for how many strategy variants get tried before the result stops meaning anything. For the LLM plane, define what forward-test evidence would be sufficient, in advance, before anyone is looking at a P&L curve they like.
 
 ⚠️ **The uncomfortable version:** if the LLM fleet cannot be validated historically and forward validation takes many months of paper trading, that is a real argument for proving the deterministic strategy spine first and adding agents only where they demonstrably beat it. That is a G-01 and D-09 question, and this gap is evidence for the thin vertical slice.
+
+✅ **2026-07-23 — D-17 gives this gap the control it was missing.** With a documented factor as the deterministic baseline, the LLM overlay is no longer *the* strategy (unvalidatable) — it is an **overlay measured against a known benchmark.** The forward test now has a control: *does factor + LLM beat factor alone, net of the LLM's cost?* That is worth far more than a forward test of the agents in isolation, and it converts G-42 from "the agents cannot be validated" into "the agents' *marginal contribution* can be, given enough time." The time problem remains (D-16 slows decisions to ~250/yr), but the epistemics are now sound.
 
 <a id="g-43"></a>
 
@@ -926,6 +943,12 @@ Reframed direction:
   - **Materially revised:** G-02 (framework now live — moved to Phase 0), G-17 (upgraded 🟡→🟠).
   - **Progressed to IN DESIGN:** G-04, G-09, G-19, G-23.
   - **Structural:** added the register-at-a-glance table, `Status` field, and the [REVIEWING.md](REVIEWING.md) entry template.
+- **2026-07-23 (twelfth pass)** — **strategic pivot: positional + research-backed** (owner: "move away from intraday, research-backed intervention").
+  - **D-16 — end-of-day positional system.** Screen post-close on daily bars, decide pre-open, hold days–weeks; live-stream only the ~10 held names. Cuts the LLM fleet **13×** (~$28k → ~$2.2k/yr) and moves G-44 break-even from **₹6.1 cr → ₹0.48 cr**. The cascade dissolves the hardest engineering: **G-03 🔴→🟡** (no 9,000-instrument ingest), G-04/G-31 shrink, **D-02 re-opened** (Rust throughput justification gone — Python now a serious contender), D-03 further weakened, G-30 mostly moot (CNC/NRML not MIS).
+  - **D-17 — first strategy is a documented anomaly**, not invented. Momentum/low-vol/value/quality — decades of out-of-sample evidence that *predates our trading*, sidestepping G-42. Deterministic, so cheap (G-11), describable (G-41), and backtestable (G-42). The LLM fleet becomes an **overlay measured against the factor**, which finally gives G-42 a control and G-44 a per-tier test. **G-01 🔴 OPEN → IN DESIGN.**
+  - **D-09 resolved:** strategy-first vertical slice. Build the factor backtest first, then the slice, then the EOD live plane, then (optional) the LLM overlay.
+  - **New dominant risk (G-18):** overnight gap replaces intraday stop-out. A CNC stop is not a floor you can act on — envelope must size for gaps, with a separate overnight-exposure cap.
+  - **Net: blockers 9 → 6.** The pivot removed more risk than it added.
 - **2026-07-22 (eleventh pass)** — **D-15: no destruction of data** (owner directive) established as an architectural invariant (doc 03 §6, item 10).
   - **Affordable, which is what makes it a rule:** ~160 GB/yr compressed ≈ **$24/yr on S3 Standard-IA** — a third of the Kite subscription, 0.3% of the lean LLM line. There is no cost worth deleting data to control.
   - **Four violations fixed:** rejected ticks were *"sampled"* into a quarantine log (now all persisted); storage framed as a *retention* question (now tiering — **G-04 downgraded 🟠→🟡**); Redis trim ordering assumed rather than enforced (durable write must complete first, and a trim while a group lags now alerts); the ledger described only as "persisted" (now **append-only** — corrections are new entries, never in-place edits).
