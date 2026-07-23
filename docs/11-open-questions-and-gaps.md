@@ -203,6 +203,8 @@ Automating the 6 AM mint via headless browser + TOTP was flagged as a ToS gray a
 
 *Resolution:* accept the daily manual step. Build the helper to make it fast (one click, token distributed to all services), not to remove the human.
 
+✅ **2026-07-23 — the helper is built.** `scripts/kite_login.py` + `kestrel/kite/auth.py` implement the operator-in-the-loop mint: it prints the login URL, the operator logs in in their own browser (2FA/TOTP), pastes back the redirect, and the helper does the checksum → `access_token` exchange and stores the token for all services (`kestrel/kite/tokenstore.py`, a 0600 file behind a swappable `TokenStore` protocol so Redis can drop in later). The `access_token` is never printed or logged; expiry tracks the 06:00-IST kill. The automated-browser step is deliberately **not** built — that is the ToS line this gap draws. Tested (`tests/test_kite_auth.py`, incl. the checksum vector and the expiry boundary).
+
 *Residual:* doc 02 §1 notes a `refresh_token` exists for "approved platforms." Worth one question to Zerodha about what that status requires — but do not design around it.
 
 <a id="g-15"></a>

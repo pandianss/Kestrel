@@ -6,11 +6,11 @@ returns immutably (`SnapshotStore`); the source is a thin, swappable adapter.
 
 Two implementations:
 
-  * `KiteInstrumentsSource` — the real one. Fetches Kite's gzipped instruments
-    CSV (doc 02 §4). Structured and ready, but **inert until an access token is
-    supplied** — the data plane needs no static IP, but the instruments dump
-    still requires an authenticated session. It fails loudly rather than
-    returning stale or partial data.
+  * `KiteInstrumentsSource` — the real one. GETs Kite's instruments CSV (doc
+    02 §4), which the endpoint already returns as CSV, so it is archived
+    verbatim. Needs a valid access_token (mint it with scripts/kite_login.py);
+    without one it fails loudly rather than returning stale or partial data.
+    Build it from the token store with `from_token_store`.
 
   * `StaticListSource` — a development source that emits a minimal instruments
     CSV from a Python list, so the snapshot → point-in-time-universe → backtest
@@ -19,7 +19,10 @@ Two implementations:
 from __future__ import annotations
 
 import io
-from typing import Protocol, runtime_checkable
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from typing import Callable, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -37,48 +40,83 @@ class ReferenceSource(Protocol):
         ...
 
 
-class KiteInstrumentsSource:
-    """Kite's daily instruments master (doc 02 §4): gzipped CSV of all
-    tradable instruments, regenerated ~08:30 daily. Fields include
-    instrument_token, exchange_token, tradingsymbol, name, expiry, strike,
-    tick_size, lot_size, instrument_type, segment, exchange.
+_KITE_INSTRUMENTS_URL = "https://api.kite.trade/instruments"
+_KITE_API_VERSION = "3"
 
-    ⚠️ Requires an authenticated Kite session (access_token). Left inert here
-    on purpose — wiring the real HTTP call belongs with the Phase-0 auth
-    helper (doc 10 §2), and doing it without a token would only produce a
-    misleading failure. The class exists so the snapshotter is complete and the
-    integration point is unambiguous.
+
+class KiteInstrumentsSource:
+    """Kite's daily instruments master (doc 02 §4): a CSV of all tradable
+    instruments, regenerated ~08:30 IST daily. Fields include instrument_token,
+    exchange_token, tradingsymbol, name, expiry, strike, tick_size, lot_size,
+    instrument_type, segment, exchange.
+
+    The endpoint returns CSV directly, so it is archived verbatim — the stored
+    form is the raw exchange dataset, not a re-serialised copy. Needs a valid
+    access_token; build it from the token store with `from_token_store`. The
+    one network call is behind an injectable `http` so it is testable offline.
     """
 
     dataset = "instruments"
     ext = "csv"
     source_id = "kite:/instruments"
 
-    def __init__(self, kite_client=None):
-        self._kite = kite_client
+    def __init__(
+        self,
+        api_key: str,
+        access_token: str,
+        *,
+        http: "Callable[[str, dict], bytes] | None" = None,
+    ):
+        if not api_key or not access_token:
+            raise ValueError(
+                "KiteInstrumentsSource needs api_key and a live access_token. "
+                "Mint one with scripts/kite_login.py (doc 10 §2), then use "
+                "from_token_store(). Use StaticListSource for development."
+            )
+        self._api_key = api_key
+        self._access_token = access_token
+        self._http = http or _default_get
+
+    @classmethod
+    def from_token_store(cls, store, *, now: datetime, http=None) -> "KiteInstrumentsSource":
+        """Build from a valid stored token, or raise with a clear pointer to
+        the login step. `now` decides validity (06:00-IST expiry)."""
+        token = store.load_valid(now)
+        if token is None:
+            raise RuntimeError(
+                "no valid Kite token in the store — run scripts/kite_login.py "
+                "first (the token expires at 06:00 IST daily; doc 10 §2)."
+            )
+        return cls(token.api_key, token.access_token, http=http)
 
     def fetch(self) -> bytes:
-        if self._kite is None:
+        headers = {
+            "X-Kite-Version": _KITE_API_VERSION,
+            "Authorization": f"token {self._api_key}:{self._access_token}",
+        }
+        try:
+            raw = self._http(_KITE_INSTRUMENTS_URL, headers)
+        except urllib.error.HTTPError as e:
+            # 403 here means the token expired/was rejected — a real, actionable
+            # cause, distinct from an empty dump.
             raise RuntimeError(
-                "KiteInstrumentsSource needs an authenticated Kite client "
-                "(access_token). See doc 10 §2 (daily login) — the instruments "
-                "dump is not available unauthenticated. Use StaticListSource for "
-                "development until auth is wired."
+                f"Kite instruments fetch rejected (HTTP {e.code}) — token likely "
+                f"expired; re-run scripts/kite_login.py."
+            ) from None
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"could not reach Kite instruments endpoint: {e.reason}") from None
+        if not raw or raw.count(b"\n") < 2:
+            raise RuntimeError(
+                "Kite returned an empty/degenerate instruments dump — refusing to "
+                "snapshot it (D-15: never archive empty reference data over nothing)."
             )
-        # Real call (once a client exists): the pykiteconnect `instruments()`
-        # returns parsed rows; we re-serialise to CSV bytes for archival so the
-        # stored form is the raw dataset, not a Python object.
-        rows = self._kite.instruments()  # list[dict]
-        if not rows:
-            raise RuntimeError("Kite returned an empty instruments dump — refusing "
-                               "to snapshot empty reference data (D-15).")
-        import csv
+        return raw
 
-        buf = io.StringIO()
-        writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
-        return buf.getvalue().encode("utf-8")
+
+def _default_get(url: str, headers: dict) -> bytes:
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 (fixed host)
+        return resp.read()
 
 
 class StaticListSource:

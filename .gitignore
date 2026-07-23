@@ -8,6 +8,7 @@ secrets/
 **/access_token*
 **/api_secret*
 kite_creds*
+kite_token*
 config.local.*
 
 # === Rust (hot plane) ===

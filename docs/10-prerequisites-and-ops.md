@@ -24,9 +24,9 @@
 
 The `access_token` **expires at 6 AM daily** by regulation; there is no refresh token. So each trading day, before market open, a fresh token must be minted via the login flow (doc 02 §1).
 
-- **Helper to build:** guides/automates the redirect → `request_token` → checksum → `access_token` exchange, then distributes the token to all services (via Redis/secret store).
-- **All services** must handle `403 TokenException` by pausing cleanly and resuming when the new token arrives.
-- **Automated TOTP login** (e.g., headless browser + TOTP) is technically possible but sits in a **ToS gray area** — flagged as Gap G-12. Default to a semi-manual, operator-in-the-loop mint until ToS is confirmed.
+- **Helper — ✅ built (`scripts/kite_login.py`, `kestrel/kite/`).** Guides the redirect → `request_token` → checksum → `access_token` exchange and stores the token for all services. The store is a 0600 file today (single host, doc §3) behind a `TokenStore` protocol, so a Redis/secret-store backend drops in without touching the login flow. The `access_token` is never printed or logged; validity tracks the 06:00-IST expiry so a stale token reads back as absent and callers fail safe rather than sending orders Kite will 403.
+- **All services** must handle `403 TokenException` by pausing cleanly and resuming when the new token arrives. `FileTokenStore.load_valid(now)` already returns `None` past expiry, giving services a fail-safe read.
+- **Automated TOTP login** (e.g., headless browser + TOTP) is technically possible but sits in a **ToS gray area** — flagged as Gap G-12. The helper is deliberately **operator-in-the-loop**: it stops at the browser login and never types credentials into an automated flow.
 
 ---
 

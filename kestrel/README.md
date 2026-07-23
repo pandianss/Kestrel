@@ -16,6 +16,8 @@ anything live.
 | `data/reference.py` | Swappable reference sources: `KiteInstrumentsSource` (real, inert until auth) and `StaticListSource` (dev, runnable today). |
 | `data/pit.py` | Bridge: archived snapshots → `PointInTimeUniverse`. Closes the loop snapshots → PIT universe → backtest. |
 | `data/yahoo.py` | **Development-only** NSE loader. Survivorship-biased, licence-incompatible with live — for building the engine, not for conclusions. |
+| `kite/auth.py` | Daily login (doc 10 §2): checksum + `request_token`→`access_token` exchange, 06:00-IST expiry math. Operator-in-the-loop; never automates the browser (G-12). Pure core, injectable HTTP. |
+| `kite/tokenstore.py` | Where the day's token lives so services can read it. 0600 file behind a `TokenStore` protocol (Redis later). `load_valid(now)` fails safe past expiry. |
 | `strategies/momentum.py` | First documented anomaly (D-17): cross-sectional momentum, a pure function of prices. |
 | `backtest/engine.py` | Deterministic, point-in-time, cost-aware monthly rebalance loop. Propagates the survivorship flag so a biased run can't be mistaken for a clean one. |
 | `backtest/metrics.py` | CAGR/Sharpe/maxDD **plus t-stat and information ratio** — the honest stats that expose a survivorship-inflated CAGR. |
@@ -24,9 +26,10 @@ anything live.
 
 ```bash
 pip install -e ".[dev]"
-python scripts/run_momentum.py      # the first empirical result + its caveat
-python scripts/snapshot_reference.py  # daily: archive today's universe (start accumulating PIT data)
-pytest -q                           # 21 tests: cost traps, determinism, no look-ahead, no-overwrite invariant
+python scripts/run_momentum.py        # the first empirical result + its caveat
+python scripts/kite_login.py          # daily: mint the access_token (operator-in-the-loop)
+python scripts/snapshot_reference.py  # daily: archive today's universe (real Kite once logged in, else dev)
+pytest -q                             # 40 tests: cost traps, determinism, no look-ahead, no-overwrite, login
 ```
 
 ## The first result, and why it matters (2026-07-23)

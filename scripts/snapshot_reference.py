@@ -13,21 +13,42 @@ KiteInstrumentsSource there with an authenticated client.
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from kestrel.data.reference import ReferenceSource, StaticListSource
+from kestrel.data.reference import (
+    KiteInstrumentsSource,
+    ReferenceSource,
+    StaticListSource,
+)
 from kestrel.data.snapshot import SnapshotConflictError, SnapshotStore
+from kestrel.kite.auth import IST
+from kestrel.kite.tokenstore import FileTokenStore
 
-# Dev universe stand-in until Kite instruments are available.
+# Dev universe stand-in used only when no Kite token is available.
 DEV_SYMBOLS = [
     "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "SBIN", "ITC",
     "LT", "AXISBANK", "BHARTIARTL",
 ]
 
 STORE_ROOT = "data/snapshots"
+TOKEN_PATH = "data/secrets/kite_token.json"
+
+
+def choose_source(now: datetime) -> ReferenceSource:
+    """Prefer the real Kite instruments dump when a valid token is stored; fall
+    back to the dev source so the pipeline still runs before auth is wired.
+    Note the fallback loudly — a dev snapshot must never be mistaken for real
+    reference data."""
+    token = FileTokenStore(TOKEN_PATH).load_valid(now)
+    if token is not None:
+        print(f"  using live Kite instruments ({token.masked()})")
+        return KiteInstrumentsSource(token.api_key, token.access_token)
+    print("  ⚠️  no valid Kite token — falling back to DEV static list. "
+          "Run scripts/kite_login.py to capture real reference data.")
+    return StaticListSource(DEV_SYMBOLS)
 
 
 def snapshot_today(store: SnapshotStore, source: ReferenceSource, today: date) -> None:
@@ -44,14 +65,11 @@ def snapshot_today(store: SnapshotStore, source: ReferenceSource, today: date) -
 
 
 def main() -> None:
-    # today() is unavailable in some sandboxes; the job is called with an
-    # explicit date in tests. For the CLI, derive it from the OS.
-    import datetime as _dt
-
-    today = _dt.date.today()
+    now = datetime.now(timezone.utc)
+    today = now.astimezone(IST).date()   # trading day is an IST calendar day
     store = SnapshotStore(STORE_ROOT)
-    source = StaticListSource(DEV_SYMBOLS)
-    print(f"Daily reference snapshot — {today}  (source: {source.source_id})")
+    print(f"Daily reference snapshot — {today}")
+    source = choose_source(now)
     snapshot_today(store, source, today)
     dates = store.list_dates(source.dataset)
     print(f"  archive now holds {len(dates)} dated snapshot(s): "
