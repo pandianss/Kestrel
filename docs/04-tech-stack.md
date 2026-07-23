@@ -7,8 +7,8 @@
 
 ## 1. Languages / runtimes
 
-### Rust — hot plane
-**Why:** the 9,000-instrument Full-depth tick stream is a serious parsing/throughput workload; the execution engine must be deterministic and low-latency. Rust gives predictable performance without GC pauses, strong concurrency, and a single deployable binary.
+### Rust — the safety core only *(revised 2026-07-23, D-02 + D-16)*
+**Why:** **not throughput — correctness.** The original rationale (9,000-instrument Full-depth parsing) was deleted by the end-of-day cadence (D-16): the live path is ~10 instruments, which has ~2,000× headroom in Python. Rust is retained for the **execution plane only** — Execution Gateway, risk engine, Position Manager — because that is the code where a silent bug loses money or breaches compliance, and Rust's type system catches whole bug classes at compile time. ~1–2k lines, changes rarely. Everything else is Python. See D-02 for the exact boundary.
 
 Candidate crates (to confirm at build time):
 - WebSocket: `tokio-tungstenite` (async) on `tokio`.
@@ -17,8 +17,8 @@ Candidate crates (to confirm at build time):
 - QuestDB ingest: line protocol (ILP) client.
 - Serialization for the bus: `serde` + `rmp-serde` (MessagePack) or JSON for debuggability.
 
-### Python — cognition plane
-**Why:** the agent ecosystem (LangGraph, Anthropic SDK) and the official `pykiteconnect` SDK live here; iteration speed matters for agent logic. Python is *not* on the latency-critical path.
+### Python — everything except the safety core
+**Why:** the agent ecosystem (LangGraph, Anthropic SDK) and the official `pykiteconnect` SDK live here; iteration speed matters everywhere the operator actually works. Under D-16 the data plane (ingest of ~10 live names, daily-bar backfill, snapshotter) is trivial and joins Python — there is no throughput reason to split it out. Python is *not* on any latency-critical path; at ~10 ticks/sec there is no latency-critical path at all.
 
 Candidate libraries:
 - Orchestration: **LangGraph** (stateful, graph-based multi-agent control flow).

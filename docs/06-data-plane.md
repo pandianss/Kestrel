@@ -4,6 +4,8 @@
 
 The data plane owns everything that reads from Kite's market-data surfaces and turns it into normalized, queryable state. No LLM here.
 
+⚠️ **Language: Python** *(2026-07-23, D-02 + D-16).* This document originally specified Rust for throughput. The end-of-day cadence removed that need — the live path is ~10 held names, and screening is daily bars — so the data plane is **Python**. The only Rust in the system is the execution plane (doc 07). Read Rust-specific notes below as historical.
+
 ---
 
 ## 1. Components

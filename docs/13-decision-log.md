@@ -15,7 +15,7 @@ This log records each significant decision once: what was decided, what else was
 | ID | Decision | Status | Reversibility |
 |---|---|---|---|
 | [D-01](#d-01) | Paper-trade before live | FIRM | CHEAP |
-| [D-02](#d-02) | Rust hot plane + Python cognition plane | FIRM | EXPENSIVE |
+| [D-02](#d-02) | **Python default + small Rust safety core** (execution plane) | FIRM | CHEAP toward Python-only |
 | [D-03](#d-03) | Max universe (9,000) on one API key | PROVISIONAL | CHEAP |
 | [D-04](#d-04) | Redis as the inter-plane contract | FIRM | MODERATE |
 | [D-05](#d-05) | QuestDB for time-series capture | PROVISIONAL | MODERATE |
@@ -52,9 +52,48 @@ This log records each significant decision once: what was decided, what else was
 
 <a id="d-02"></a>
 
-## D-02 — Rust hot plane + Python cognition plane
+## D-02 — Python everywhere, with a small Rust safety core
 
-**Decided:** Rust for ingestion, execution, and position management; Python for LLM agents. Redis between them.
+**Resolved 2026-07-23.** *(Superseding the original "Rust hot plane + Python cognition plane." D-16 removed the throughput rationale for a large Rust plane; this replaces it.)*
+
+**Decided:** **Python is the default language for the whole system.** A **small Rust core** implements only the components where a bug directly causes an uncontrolled loss or a compliance breach — chosen for **compile-time correctness, not speed.**
+
+### The boundary — and it is deliberately narrow
+
+| Rust safety core | Python (everything else) |
+|---|---|
+| **Execution Gateway** — single writer to the broker, `algo_id` tagging, the calendar-second rate limiter | Data ingester (now ~10 live names — trivial) |
+| **Risk engine** — pre-trade checks, margin, kill-switch | Historical backfill, instruments loader + snapshotter |
+| **Position Manager** — stops, targets, time-exits, feed-loss policy | Tick sanity filter, fill simulator *(paper-only; can be Python)* |
+| | The **entire cognition plane** — screeners, specialists, manager, factor backtest, research |
+
+The line is exactly **doc 07's execution plane.** Everything in doc 06 (data) and doc 08 (cognition) is Python. That is a crisp, defensible boundary — not "the fast stuff," which sprawls, but "the stuff that must not be wrong about money or compliance," which is bounded and small (order of ~1,000–2,000 lines).
+
+**Alternatives considered and rejected:**
+- **Python-only** — viable, and genuinely close. Rejected only because the exit path and risk engine are the code where a silent bug is most expensive, and Rust's type system + absence of GC pauses buy real confidence there. If the operator later judges that confidence not worth a second toolchain, collapsing to Python-only is CHEAP (see reversibility).
+- **The original large Rust hot plane** (ingester, backfill, quote poller all in Rust) — its justification was 9,000-instrument throughput, which D-16 deleted. Keeping it would pay the two-toolchain tax for speed nobody can observe (10 ticks/sec has ~2,000× headroom in Python).
+
+### Why — correctness, explicitly not speed
+
+At this cadence and scale, **speed is not a differentiator**: 10 ticks/sec against a 100,000 µs/tick budget is 99.95% idle in Python, and Kite's ~1 tick/sec feed means a stop that fires 30 ms "late" fills on the same tick regardless (doc 01 §5 — "not HFT, the latency floor is Kite's"). The Rust core is justified on a different axis entirely:
+
+- **The exit path is the money-losing-if-wrong code** (D-07). Rust's type system catches whole classes of bug — null/None, unhandled variants, integer overflow, use-after-move — at compile time rather than at 2 p.m. with an open position.
+- **No GC pause to reason about** in the one loop (stop evaluation) where an unbounded pause is theoretically undesirable — even though at this cadence it wouldn't matter, it removes the question entirely.
+- **Compliance surface** (single-writer, tagging, rate limit) is small, changes rarely, and is exactly the kind of code worth freezing behind a strict compiler.
+
+### Cost
+
+- **Two toolchains** — but only one of them is large. The Rust surface is ~1–2k lines that change rarely; the Python surface is where all iteration happens.
+- **A Redis boundary** between the Python manager and the Rust execution core — but this already existed as the inter-plane contract (D-04), just at a different line. The manager emits `OrderIntent` onto a stream; the Rust core consumes it. No new mechanism.
+- **The `.pyd`/FFI question is avoided** — the two sides talk over Redis, not in-process, so there is no PyO3 binding to maintain unless profiling ever demands one (it won't, at this scale).
+
+**Status:** FIRM · **Reversibility:** **CHEAP toward Python-only** (delete the Rust core, reimplement ~1.5k lines behind the same Redis contract — a known, bounded job); EXPENSIVE to re-expand Rust, but D-16 means there is no reason to.
+
+---
+
+*Original decision preserved below for the record:*
+
+**Originally decided:** Rust for ingestion, execution, and position management; Python for LLM agents. Redis between them.
 
 **Alternatives:** Python throughout (fastest to build, GC pauses and parse cost at 9,000 instruments); Rust throughout (uniform, but the agent ecosystem lives in Python); Go or C++ (middle grounds with worse ecosystem fit for one or the other half).
 

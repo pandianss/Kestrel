@@ -70,9 +70,10 @@ For reviewers unfamiliar with Kite/Indian-market vocabulary or this project's te
 ## Kestrel (this project)
 
 - **Kestrel** — the project codename: a multi-agent trading system on Kite Connect. Named for the bird of prey that hovers to scan a wide field, then stoops on a single target — watch broadly, act selectively.
-- **Hot plane** — the Rust, latency-sensitive layer (data + execution). No LLM.
+- **Hot plane** — *(term superseded 2026-07-23)* originally the Rust data+execution layer. Under D-02/D-16 only the **execution plane** is Rust (the safety core); the data plane is Python. Prefer "execution safety core" and "data services."
+- **Rust safety core** — the execution plane (Execution Gateway, risk engine, Position Manager) — the only Rust in the system, chosen for compile-time correctness on the money-losing-if-wrong path, not speed (D-02).
 - **Cognition plane** — the Python/LLM layer (agents). No direct Kite writes.
-- **I/O services** — Rust components that talk to Kite; singletons due to rate limits.
+- **I/O services** — components that talk to Kite; singletons due to rate limits. Order I/O is the Rust execution core; data I/O (ingest, backfill) is Python (D-02).
 - **Static study fleet** — offline batch agents analyzing cached historical data.
 - **Live funnel** — screeners → specialists → risk/portfolio manager → execution gateway. This is the **entry** path only.
 - **Risk/Portfolio Manager** — the single LLM authority that may **open** a position. It cannot be relied on to close one.

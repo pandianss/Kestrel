@@ -6,12 +6,15 @@
 
 ## 1. The two-plane model
 
-The system separates concerns into two planes with very different performance characteristics:
+> ⚠️ **The plane split is now by *criticality*, not by language** *(2026-07-23, D-02 + D-16).* The original model split Rust (hot) from Python (cognition) on throughput. The end-of-day cadence removed the throughput pressure, so the data plane is now Python too. The line that remains is: **the execution plane is a small Rust safety core; everything else is Python.** The diagram below still shows the *logical* planes — read "hot plane" as "the Rust execution core plus the (now Python) data services," and note only the execution box is Rust.
 
-- **Hot plane (Rust):** deterministic, latency-sensitive, always-on. Owns everything that touches Kite's rate-limited surfaces and the live tick stream. Correctness and throughput matter; there is no LLM in the hot path.
-- **Cognition plane (Python):** throughput- and cost-sensitive, seconds-scale. Owns the LLM agents that reason about the market. It never talks to Kite directly for writes and never bypasses the risk manager.
+The system separates concerns into planes with different **correctness and lifecycle** characteristics:
 
-Between them sits an **event bus + hot cache** (Redis) that is the contract boundary.
+- **Execution plane — the Rust safety core (D-02):** the single writer to the broker, the risk engine, and the Position Manager. The code where a bug loses money or breaches compliance. ~1–2k lines, changes rarely, no LLM.
+- **Data services (Python):** ingest (~10 live held names), daily-bar backfill, instruments loader + snapshotter, tick sanity, fill simulator. Trivial load under the end-of-day cadence — no longer a throughput concern.
+- **Cognition plane (Python):** the factor backtest and the LLM agents. Never talks to Kite for writes, never bypasses the risk manager.
+
+Between them sits an **event bus + hot cache** (Redis) that is the contract boundary — now between the Python side and the Rust execution core (same mechanism, D-04, boundary moved).
 
 ```mermaid
 flowchart TB

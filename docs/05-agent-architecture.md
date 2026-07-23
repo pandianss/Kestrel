@@ -10,7 +10,7 @@
 
 Not everything here is an LLM. We distinguish:
 
-- **I/O services** (Rust) — talk to Kite. Bounded by rate limits → **singletons**.
+- **I/O services** — talk to Kite. Bounded by rate limits → **singletons**. *(Order placement is the Rust execution core; market-data I/O is Python — D-02.)*
 - **Cognition agents** (Python/LLM) — reason over cached/streamed data. Bounded by compute/token budget → **scale wider, with diminishing returns**.
 - **Information-source agents** (Python/LLM + fetchers) — bring in external signal (news, central banks). Independent of Kite limits.
 

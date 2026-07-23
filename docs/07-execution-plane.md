@@ -4,6 +4,8 @@
 
 The execution plane is the **single writer** of orders and the guardian of risk. In the paper-first build it writes to a local fill simulator; the same interface later writes to Kite's order API for live trading.
 
+✅ **This plane is the Rust safety core** (doc 13, D-02) — the *only* Rust in the system. It is chosen for compile-time correctness on the money-losing-if-wrong path, not for speed. Everything outside this document is Python.
+
 It contains two components with deliberately different authority:
 
 - the **Execution Gateway** — validates, risk-checks, routes, and books every order;

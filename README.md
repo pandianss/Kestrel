@@ -105,14 +105,16 @@ This design restates external facts that **change without notice**. Three of the
 
 The project codename is **Kestrel**. Conventions to apply as code lands:
 
-| Binary / package | Contains |
-|---|---|
-| `kestrel-ingester` | Data Ingester, Subscription Manager, Instruments Loader, tick sanity filter |
-| `kestrel-backfill` | Historical Backfill |
-| `kestrel-quote` | Quote Poller |
-| `kestrel-execution` | Execution Gateway, risk engine, **Position Manager**, fill simulator, P&L ledger |
-| `kestrel-replay` | Deterministic tick-replay harness (doc 07 §4.3) |
-| `kestrel` (Python) | `kestrel.agents`, `kestrel.orchestrator`, `kestrel.news`, `kestrel.macro` |
+**Python is the default language.** A small **Rust safety core** covers only the execution plane — the code where a bug loses money or breaches compliance — chosen for compile-time correctness, not speed (doc 13, D-02).
+
+| Binary / package | Language | Contains |
+|---|---|---|
+| `kestrel-execution` | **Rust** | Execution Gateway, risk engine, **Position Manager**, `algo_id` tagging, calendar-second rate limiter, P&L ledger. *The entire safety core.* |
+| `kestrel` (Python) | Python | `kestrel.ingest` (WebSocket + REST, ~10 live names), `kestrel.backfill`, `kestrel.instruments` (loader + point-in-time snapshotter), `kestrel.research` (factor backtest, replay), `kestrel.agents`, `kestrel.orchestrator`, `kestrel.news`, `kestrel.macro` |
+
+*The fill simulator is paper-only and may live in either — Rust for cohesion with the execution binary, or Python for iteration. Decide at build time.*
+
+⚠️ **Superseded (D-16 + D-02):** the earlier `kestrel-ingester` / `-backfill` / `-quote` / `-replay` Rust binaries assumed a large Rust hot plane justified by 9,000-instrument throughput. That throughput is gone (end-of-day cadence), so those components move to Python. Only the execution plane stays Rust.
 
 - **Redis streams / keys:** `kestrel:ticks`, `kestrel:candidates`, `kestrel:assessments`, `kestrel:orders`, `kestrel:news`, `kestrel:macro`, `kestrel:dlq`
 - **Metrics prefix (Prometheus):** `kestrel_*`
