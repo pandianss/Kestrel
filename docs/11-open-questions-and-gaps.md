@@ -92,6 +92,10 @@ The entire design is **strategy-agnostic plumbing**. It can carry *a* strategy b
 
 *What is still open:* the specific factor, its universe, rebalance frequency, and long-only vs long/short. And ⚠️ **whether the factor survives Indian transaction costs and liquidity** (doc 07 §5.1) — a deterministic backtest, now the first concrete Phase 2 deliverable.
 
+*2026-07-23 — first empirical test run (real data, real code).* A working backtest engine (`kestrel/backtest/`) was built and run on 30 years of NSE monthly data. Cross-sectional momentum (12-1, top-10) on a survivor universe returned ~30% CAGR net of costs — **but the equal-weight-hold control returned ~28% and NIFTY ~8%**, so almost the entire return is survivorship bias, not factor edge. Momentum's marginal contribution over the same survivor pool was **IR 0.14**, and the clean long-short spread was **statistically insignificant (|t| < 1)** across three parameterisations.
+
+*What this establishes:* (a) the hypothesis is testable before build — the engine runs, is deterministic, and is tested; (b) the factor's edge is **not yet demonstrated** and cannot be until a **broad, point-in-time universe** (delisted names included) replaces the survivor list — which needs Kite data + the G-43 snapshotter. The apparatus is ready; the trustworthy data is not. This is the sharpest possible confirmation that **G-43 is worth ~18 points of fake CAGR** and must be solved first.
+
 *2026-07-22 note:* the exit-path and margin gaps below (G-28, G-29) strengthen the case for a thin vertical slice first — both were invisible at the architecture level and would have surfaced immediately from carrying one real position. See doc 09, "thin vertical slice."
 
 <a id="g-13"></a>
@@ -820,7 +824,9 @@ The architecture already draws the right line — it just wasn't being used for 
 <a id="g-43"></a>
 
 ### G-43 🟠 — Point-in-time reference data is not being captured, and cannot be recovered later *(new)*
-**Status:** OPEN · **Resolve by:** **Phase 0** — every day of delay is permanently lost data
+**Status:** SNAPSHOTTER BUILT — accumulation begins day one · **Resolve by:** **Phase 0** — every day of delay is permanently lost data
+
+✅ **2026-07-23 — the fix is now code, not a plan.** `kestrel/data/snapshot.py` (`SnapshotStore`) writes dated, immutable reference snapshots with sha256 manifests and enforces the D-15 no-overwrite invariant: a second write with *different* content for the same (dataset, date) **raises `SnapshotConflictError`** rather than destroying the prior view; an identical re-write is an idempotent no-op, so the daily job is safe to re-run. `asof(dataset, d)` gives point-in-time retrieval (latest snapshot ≤ d, never a future one). `kestrel/data/pit.py` reads the archive straight back into a `PointInTimeUniverse`, closing the loop *snapshots → PIT universe → backtest*. Daily job: `scripts/snapshot_reference.py`. Tested end-to-end (`tests/test_snapshot.py`, 7 tests incl. the conflict invariant). **What remains is not code but *running it*:** the real feed is `KiteInstrumentsSource`, inert until Kite auth exists (doc 10 §2) — until then the dev `StaticListSource` exercises the whole path. The accumulation the trustworthy factor test needs starts the first day this job runs against real instruments.
 
 `point-in-time` returns **zero hits** in the repo. The design fetches the instruments master daily (doc 06 §1.1) and **overwrites it**. The same is true of every other piece of reference data.
 
@@ -833,6 +839,8 @@ The architecture already draws the right line — it just wasn't being used for 
 | Circuit limits | Daily | The tick sanity filter (doc 06 §1.6) validates history against today's bands |
 | Margin rates | Daily | G-29's margin model prices old positions at today's requirements |
 | `instrument_token` ↔ symbol mapping | On expiry/rollover | Tokens are reused (doc 02 §4); the mapping must be as-of, not current |
+
+✅ **2026-07-23 — demonstrated live, not theoretical.** A momentum backtest on today's NSE large caps returned ~30% CAGR; the same strategy's edge over a survivor-control was near zero, and NIFTY (which includes the delisted) returned ~8%. **The survivorship gap was ~18–22 percentage points a year of pure artefact** (`kestrel/backtest/`, doc 11 G-01 note). No backtest number is trustworthy until the point-in-time snapshotter is capturing membership.
 
 **Survivorship bias is the one that will actually bite.** A universe built from today's instruments master contains only companies that still exist. Backtest on it and every strategy looks better than it was — the failures were removed from the sample before you started.
 
