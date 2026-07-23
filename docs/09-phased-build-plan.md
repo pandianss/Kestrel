@@ -18,7 +18,7 @@ Each phase has deliverables and **exit criteria** — a phase isn't "done" until
 - Observability skeleton (Prometheus + Grafana + structured logging).
 - Sandbox connectivity check (API-contract validation harness).
 - **⚠️ SEBI/ToS groundwork — moved here from Phase 6** *(revised 2026-07-22; the framework took full effect 1 April 2026, so this can no longer be deferred)*:
-  - **Provision and register a static IP** (Elastic IP, ap-south-1) in the Kite developer profile's IP whitelist. Orders from unwhitelisted IPs are rejected outright.
+  - **Static IP — deferred to the live-order stage, not Phase 0 (D-18).** It gates only the order path; research and data capture run from the operator's PC on an ordinary connection (data endpoints are not IP-restricted). Source it at go-live via an ISP static-IP add-on or a small Indian relay box (doc 10 §3). ⚠️ A dynamic home IP is incompatible with the order path (registered IP changes only once/week, NSE §A.6) — hence the fixed address *there*.
   - ✅ **Resolved — not an algo provider.** Self + immediate family on a single account is exempt from empanelment (doc 02 §9.4). No action needed; recorded here because it was the question that could have reshaped the project.
   - **Obtain the generic Algo ID** and confirm how it attaches — bound server-side to the API key, or passed per order? ⚠️ *Every API order must carry an algo tag; there is no exempt volume (doc 02 §9.3).* Plumb `algo_id` as a required field from the first order the simulator ever sees.
   - ✅ **Client-level OPS limit confirmed: 10** (owner, 2026-07-22). G-39's book sizing stands. Read from config — TOPS is adjustable on exchange notice.
@@ -121,7 +121,7 @@ The original "Phase 0 + Phase 1: build the 9,000-instrument ingester first" is *
 
 The strategy-first sequence:
 
-1. **Phase 0 essentials** — repo, config, secrets, the Redis contract, **and the point-in-time snapshotter** (G-43, losing data every day it doesn't exist). No static IP needed yet; the compliance answers are in.
+1. **Phase 0 essentials** — repo, config, secrets, the Redis contract, **and the point-in-time snapshotter** (G-43, losing data every day it doesn't exist). Runs on the operator's PC (D-18); no cloud host and no static IP needed yet, and the compliance answers are in.
 2. **The factor backtest** — pick a documented anomaly (D-17), pull point-in-time daily bars, model Indian costs (doc 07 §5.1), and answer *"does this edge survive here?"* **before any live wiring.** Deterministic, cheap, and it is where a real edge is either found or ruled out. This is the highest-information, lowest-cost work in the project.
 3. **The vertical slice** — one instrument, the factor rule, the real fill simulator and Position Manager, no LLMs. Exercises the exit path, margin, and cost model end-to-end. Now runs a *researched* strategy, so its paper results mean something.
 4. **The end-of-day live plane** — daily screen, pre-open decide, live-stream only held names. Small, because D-16 made it small.

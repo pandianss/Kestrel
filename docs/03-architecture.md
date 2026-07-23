@@ -160,10 +160,10 @@ The sandbox serves *demo* data and may not enable historical, so it can't realis
 
 ## 5. Deployment topology (summary — see doc 10)
 
-- Single region: **AWS Mumbai (ap-south-1)** — near Zerodha for low RTT, and ⚠️ **required by the Kite licence**, which grants use *"within India"* only (doc 02 §9.7). Moving the host offshore for cost would breach the licence, not merely add latency.
-- Containerized (Docker Compose to start): Rust services, Python cognition workers, Redis, QuestDB, Prometheus, Grafana.
-- **The order-placing host must sit behind a registered static IP** (Elastic IP), because Kite rejects order requests from unwhitelisted addresses under the SEBI framework (doc 02 §9). Data-plane endpoints are not IP-restricted.
-- Single-machine to start; the plane separation allows later horizontal split of the cognition workers if token throughput demands it (the hot plane stays singleton by design). **The execution path specifically cannot roam** — the static-IP binding pins it.
+- Host: **the operator's own PC, in India (D-18)** — no cloud host in Phase 0–2. The end-of-day cadence (D-16) removed the latency case, and the Kite licence's *"within India"* term (doc 02 §9.7) is a **geography** constraint the PC satisfies. Moving the host **offshore** would breach the licence; an Indian PC does not.
+- Run directly on the PC to start (a Python venv). The intraday service stack (Redis firehose, QuestDB, Prometheus, Grafana) was sized for a ~9,000-instrument tick torrent that a positional book streaming ~10 names does not generate (D-03/D-16); introduce it only if scale ever demands.
+- **The order path — and only the order path — must originate from a registered static IP**, because Kite rejects orders from unwhitelisted addresses under the SEBI framework (doc 02 §9). Data-plane endpoints are not IP-restricted, so research and capture run from the PC's ordinary connection. The static IP is sourced at go-live (ISP add-on, or a small Indian relay box — doc 10 §3, D-18).
+- Single-machine by default; **the execution path cannot roam** — wherever the whitelisted IP lives, order placement is pinned to it.
 
 ## 6. Key invariants (must always hold)
 

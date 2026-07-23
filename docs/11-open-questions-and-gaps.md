@@ -226,7 +226,7 @@ Automating the 6 AM mint via headless browser + TOTP was flagged as a ToS gray a
 **✅ Kite ToS reviewed 2026-07-22 — three findings and one unresolved ambiguity** (full text in doc 02 §9.7):
 
 1. **The display restriction is narrower than feared:** *"cannot be displayed to **the public at large**."* A private operator dashboard is not that. Grafana behind VPN stays viable.
-2. **`ap-south-1` is a licence term, not a latency choice:** *"limited license… for use **within India**."* A future cost optimisation moving the host offshore would breach it. Record it as a constraint (doc 03 §5, doc 10 §3).
+2. **The host must be in India — a licence term, not a latency choice:** *"limited license… for use **within India**."* This is **geography, not a specific provider**: it is satisfied by the operator's own PC in India, and moving the host *offshore* would breach it (**D-18**, 2026-07-23 — this supersedes the earlier reading that equated the term with AWS `ap-south-1`; a cloud region was only ever one way to be in India). Record as a constraint (doc 03 §5, doc 10 §3).
 3. **The research corpus is a leasehold:** on termination we must *"delete any cached or stored content."* Years of accumulated ticks are **rented, not owned** — worth knowing before anyone treats proprietary history as a moat.
 
 🔴 **The unresolved ambiguity, and it is load-bearing.** The ToS prohibits *"scrape, **build databases**, or otherwise create permanent copies of such content, or keep cached copies **with the intent of redistributing**."* Does the redistribution qualifier scope the whole list or only the last item?

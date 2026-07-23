@@ -31,6 +31,7 @@ This log records each significant decision once: what was decided, what else was
 | [D-15](#d-15) | **No destruction of data** — append, tier, never delete | FIRM | Impossible retroactively |
 | [D-16](#d-16) | **Positional / end-of-day**, not intraday | FIRM | MODERATE |
 | [D-17](#d-17) | **First strategy is a documented anomaly**, not invented | FIRM (approach) | CHEAP |
+| [D-18](#d-18) | **Operator's PC is the host** — cloud only if a static IP forces it | FIRM | CHEAP |
 
 ---
 
@@ -264,7 +265,9 @@ The sequence that falls out:
 
 **⚠️ Constrained since 2026-07-22:** the static-IP requirement (doc 02 §9) pins the order path to one registered address regardless, so any future multi-host topology must keep the Execution Gateway on the whitelisted host. Horizontal scaling is available for the cognition plane only.
 
-**Status:** PROVISIONAL · **Reversibility:** MODERATE for the cognition plane; the order path is constrained by regulation, not by us.
+**⚠️ Superseded for Phase 0–2 by D-18 (2026-07-23):** "one ap-south-1 host" is no longer the starting point. Research and data capture run on the operator's **PC in India**; a cloud host (Docker Compose or otherwise) enters only if the live order path needs a static IP the ISP can't supply. This decision's *shape* — everything on one machine, scale out only if measured — still holds; only the machine changed from a cloud instance to the PC.
+
+**Status:** ~~PROVISIONAL~~ **SUPERSEDED by D-18 for the host location** (single-machine shape retained) · **Reversibility:** MODERATE for the cognition plane; the order path is constrained by regulation, not by us.
 
 ---
 
@@ -503,6 +506,39 @@ Single-user does not soften a single correctness requirement. One person's money
 **3. Bus factor is one.** The documentation set *is* the mitigation, which retroactively justifies its weight. If the operator steps away for six months, doc 11 and doc 13 are what make the project resumable.
 
 **Status:** FIRM · **Reversibility:** CHEAP *away* from single-user in the code (nothing built assumes multi-tenancy), EXPENSIVE in regulation — serving anyone else triggers algo-provider empanelment (doc 02 §9.4).
+
+---
+
+<a id="d-18"></a>
+
+## D-18 — The operator's own PC is the host; cloud only where a static IP forces it
+
+**Status: FIRM.** *(Decided by the owner 2026-07-23. Supersedes the "AWS Mumbai (ap-south-1) host" assumption in doc 10 §3, doc 03 §5, doc 09 Phase 0, and constrains D-11.)*
+
+**Decided:** research, data capture, backtesting, and the end-of-day decision loop run on the **operator's own PC, located in India**. No cloud host is provisioned for Phase 0–2. A cloud presence is introduced **only if and when live order placement requires a static IP** that the operator's ISP cannot provide — and even then only as a minimal order-execution relay, not a lift of the whole stack.
+
+**Why the AWS host requirement dissolved.** It rested on three pillars; D-16 (positional/end-of-day) knocked out two and reduced the third to a single, deferrable need:
+
+| Original pillar (doc 10 §3) | After D-16 |
+|---|---|
+| **Low RTT to Kite** for intraday execution | Irrelevant. Decisions are pre-open; holds are days–weeks. Milliseconds don't exist in this design. |
+| **Licence "use within India"** (doc 02 §9.7) | Satisfied by the PC being physically in India. This term is about **geography, not AWS** — a cloud region was only ever *one* way to be in India. |
+| **Static IP whitelist for the order path** (doc 02 §9, NSE §A.2) | The **only** surviving reason for a fixed address — and it applies **solely to live order placement**, not to research or data. |
+
+**The one real constraint, precisely.** Kite's **data endpoints are not IP-restricted** — WebSocket, historical, positions, order book all work from any IP, so the entire research/data-capture stack (snapshotter, backtests, factor research, live quote streaming) runs on the PC today. **Order placement is IP-restricted**: Kite rejects orders from any non-whitelisted IP, and the registered IP may change only **once per calendar week** (NSE §A.6). A typical home **dynamic** IP is therefore incompatible with the *order* path — not the data path.
+
+**Alternatives considered for the eventual order path** (cheapest first):
+1. **ISP static-IP add-on** (~a few hundred ₹/month) — the PC itself becomes the whitelisted order host. Simplest; preferred if the ISP offers it.
+2. **A tiny always-on Indian cloud box with an Elastic IP**, acting only as the order-execution relay while research/data stay on the PC. The minimal survivor of the old design — a relay, not the stack.
+3. VPN/proxy with a static Indian egress — rejected as default: adds a dependency and muddies the "static IP as security boundary" property (doc 10 §7).
+
+**What this buys.** No cloud cost through the research phase; no QuestDB/Redis-firehose/Prometheus stack (that was sized for the intraday ~9,000-instrument, ~5 GB/day tick torrent — an end-of-day book of ~10 streamed names doesn't need it, per D-03/D-16); and the code already runs on the operator's Windows setup.
+
+**What it does *not* change.** The static-IP-for-orders requirement is **intact** — merely detached from "must be AWS." Every compliance constraint (Algo ID tagging, TOPS, market protection, the within-India licence) is unchanged.
+
+**Cost / caveat — availability.** A PC is not a datacentre. A positional system has a narrow daily window (~08:30–09:15 IST: snapshot + pre-open decision); if the PC is off/asleep then, that day's capture is deferred to next boot (the snapshot timer's `Persistent=true` catches it) and any new orders simply don't go out that day — tolerable for a hold-for-weeks book, and a far lower uptime bar than intraday's 24/5. Open positions carry deterministic exits (D-07) evaluated on the daily cadence, so a once-a-day-awake PC covers them. **This is the accepted trade: lower availability than a managed host, in exchange for zero cost and full local control, while no real money is at risk and even after.**
+
+**Status:** FIRM · **Reversibility:** CHEAP — introducing a cloud relay later is additive and touches only the order path; nothing in the research/data build assumes the PC, so moving it to a bigger host is a lift-and-shift, not a redesign.
 
 ---
 

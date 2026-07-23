@@ -344,7 +344,7 @@ This mattered because it is an input to G-39's derivation of maximum concurrent 
 |---|---|
 | *"live market data obtained via Kite Connect cannot be displayed to **the public at large**"* | **Narrower than feared.** A private dashboard for the operator is not "the public at large." Keeps doc 10 §4's Grafana viable — behind VPN, not on the internet |
 | *"scrape, **build databases**, or otherwise create permanent copies of such content, or keep cached copies **with the intent of redistributing**"* | 🔴 **Genuinely ambiguous — and our whole design depends on the answer.** See below |
-| *"limited license… for use **within India**"* | **AWS ap-south-1 is a licence requirement, not a latency optimisation.** Moving the host offshore for cost would breach the licence |
+| *"limited license… for use **within India**"* | **A host in India is a licence requirement, not a latency optimisation** — geography, not a specific provider. The operator's PC in India satisfies it (D-18); moving the host *offshore* would breach the licence |
 | On termination: *"delete any cached or stored content"* | **The research corpus is a leasehold, not an asset.** Years of accumulated ticks must be deleted if the subscription ends |
 
 #### The ambiguity that matters
@@ -373,7 +373,7 @@ Does *"with the intent of redistributing"* qualify the whole list, or only *"kee
 
 #### Two consequences worth carrying regardless
 
-1. **Pin the region for the right reason.** Doc 03 §5 and doc 10 §3 present ap-south-1 as a latency win. It is *also* a licence term. Record it as a constraint so a future cost optimisation doesn't quietly breach it.
+1. **Keep the host in India for the right reason.** The licence term is *geography* — an Indian-resident host, the operator's PC included (D-18). It is not a latency choice (D-16 removed the latency case) and not tied to a cloud provider. Record it as a constraint so a future cost optimisation doesn't quietly move the host offshore and breach it.
 2. **The data moat evaporates with the subscription.** A natural long-term plan is "accumulate years of tick data nobody else has." Under the termination clause that corpus must be deleted if the agreement ends — so it is rented, not owned. Worth knowing before anyone builds strategy on the assumption of a permanent proprietary history.
 
 ---

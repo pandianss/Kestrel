@@ -268,7 +268,7 @@ Target mix: 300 Full (184 B) + 3,000 Quote (44 B) + 5,700 LTP (8 B):
 Over a 6.25-hour session: **≈ 5.2 GB/day raw**, before framing overhead and before compression.
 
 **What this tells us:**
-- **Bandwidth is a non-issue.** ~2 Mbps sustained is nothing for an ap-south-1 host, even with a large burst multiple at the open. This closes the former Gap G-16 to a Phase 1 confirmation rather than an open design question.
+- **Bandwidth is a non-issue.** ~2 Mbps sustained is nothing for an ordinary broadband connection (D-18: the operator's PC), even with a large burst multiple at the open — and an end-of-day book streaming ~10 held names (D-16) sits far below even that. This closes the former Gap G-16 to a Phase 1 confirmation rather than an open design question.
 - **Storage is a *tiering* decision, not a retention one** (D-15). ~5 GB/day raw is roughly **1.3 TB/year uncompressed**; Parquet+zstd typically cuts that ~8×. At ~160 GB/year compressed, **keeping everything forever costs about $24/year on S3 Standard-IA** — a third of the Kite subscription and 0.3% of the lean LLM line. There is no cost worth deleting data to control. The question is therefore not "how long do we keep full depth" but "which tier does it live in after N days."
 - **The real risk is write *rate*, not write *volume*.** 9,000 updates/sec sustained into QuestDB is the thing to measure, and it remains a 🔴 gap (G-03).
 

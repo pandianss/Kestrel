@@ -10,11 +10,11 @@
 |---|---|---|
 | Zerodha trading account | Active, with 2FA TOTP enabled (now mandatory per API session login) | ⚠️ confirm |
 | Kite Connect app | Registered at the developer portal; `api_key` + `api_secret` issued | ⚠️ confirm |
-| **Production subscription** | **₹500/month, historical candle data included** ✅ *(verified 2026-07-22)*. **Required** — the free sandbox cannot stream 9,000 live instruments | ⚠️ confirm |
-| **Static IP, registered** | An Elastic IP in ap-south-1, added to the developer profile's **IP Whitelist**. **Kite rejects order requests from unwhitelisted IPs** (doc 02 §9). One IP ↔ one developer profile | 🔴 **blocker for any order path** |
+| **Production subscription** | **₹500/month, historical candle data included** ✅ *(verified 2026-07-22)*. **Required** for live/historical data beyond the sandbox | ⚠️ confirm |
+| **Static IP, registered** | A stable IP added to the developer profile's **IP Whitelist**. **Kite rejects order requests from unwhitelisted IPs** (doc 02 §9); data endpoints are unaffected. One IP ↔ one developer profile; up to two, changeable once/week (NSE §A.2/§A.6). **Not required for research/data — only for the live order path (D-18).** Source: ISP static-IP add-on for the PC, or a small Indian relay box | 🟡 **blocker for the order path only; not for Phase 0–2** |
 | **Compliance answers** | ✅ Algo-provider status — **exempt** (self + immediate family, doc 02 §9.4) · ✅ Client-level OPS limit — **10** (doc 02 §9.5) · ✅ Local data storage — **proceeding**, not shared (G-15, ACCEPTED). Remaining: how the generic Algo ID attaches | 🟡 **confirm during Phase 0 wiring** |
 | Sandbox access | `sandbox.kite.trade` with demo creds — for API-contract validation | free |
-| AWS ap-south-1 | Host near Zerodha for low RTT | ⚠️ provision |
+| **Host: the operator's PC (in India)** | Runs research, data capture, backtests, and the end-of-day loop. Satisfies the "within India" licence (doc 02 §9.7) by geography. No cloud host in Phase 0–2 (**D-18**) | ✅ have |
 
 > **Pricing correction (2026-07-22).** An earlier version of this document listed "~₹2,000/month." That was the old combined figure; Zerodha stopped charging the separate ₹2,000 historical-data add-on in February 2025, and Kite Connect is now **₹500/month with historical included**. There is also a free "Personal" tier, which does **not** cover our use (no streaming at this scale). The 4× error mattered only to the cost table, but it is a good illustration of why §5 now carries verification dates.
 
@@ -32,12 +32,12 @@ The `access_token` **expires at 6 AM daily** by regulation; there is no refresh 
 
 ## 3. Deployment
 
-- **Region:** AWS Mumbai (ap-south-1) — meaningful, free latency win to Kite, **and a licence requirement**: the Kite ToS grants use *"within India"* only (doc 02 §9.7). This is a constraint, not an optimisation.
-- **Packaging:** Docker; **Docker Compose** on a single host to start.
-- **Services:** Rust (ingester, backfill, quote poller, position manager, execution gateway), Python (cognition workers, orchestrator), Redis, QuestDB, Prometheus, Grafana, log store (e.g. Loki).
-- **Static IP (required):** allocate an **Elastic IP** and register it in the Kite developer profile before any order path runs. Orders from unwhitelisted IPs are rejected. Data endpoints — WebSocket, positions, order book — are not IP-restricted, so the data plane is free to move.
-- **Scaling path:** cognition workers can scale horizontally later; the hot-plane I/O services stay singletons by design. If ever split across hosts, rate-limit token buckets must become distributed (Gap G-07).
-- **⚠️ The order path cannot roam.** The static-IP binding pins execution to one registered address, and one IP maps to one developer profile. Any future multi-host topology must keep the Execution Gateway on the whitelisted host — this constrains the horizontal-scaling story in a way the earlier version of this document did not account for.
+- **Host (D-18):** the **operator's own PC, in India** — for research, data capture, backtesting, and the end-of-day loop. The intraday→positional pivot (D-16) removed the two reasons a cloud host was mandatory: there is no latency requirement (decisions are pre-open, holds are days–weeks), and the licence's *"within India"* term (doc 02 §9.7) is a **geography** constraint the PC already satisfies. No cloud host is provisioned for Phase 0–2.
+- **Location, not provider, is the licence term.** *"Use within India"* is met by any Indian-resident host, PC included. Moving the host **offshore** would breach it; keeping it on an Indian PC does not.
+- **Packaging:** run directly (a Python venv) on the PC to start; containerise only if a second machine ever enters the picture. The heavy service stack (Redis firehose, QuestDB, Prometheus/Grafana) was sized for the intraday ~9,000-instrument, ~5 GB/day tick torrent — an end-of-day book streaming ~10 held names does not need it (D-03/D-16).
+- **Static IP — order path only (deferred):** required **only when live orders begin**, not for research or data. Kite rejects orders from unwhitelisted IPs, but data endpoints (WebSocket, positions, order book, historical) are not IP-restricted. Source it when needed via an **ISP static-IP add-on** (making the PC itself the order host) or a **small always-on Indian relay box** with a fixed IP. Up to two IPs, changeable once per calendar week (NSE §A.2/§A.6) — a **dynamic home IP is incompatible with the order path**, which is the whole reason a fixed address is needed there.
+- **Scaling path:** none needed at this scale. If a relay box is ever added for the order path, keep the Execution Gateway on it (the whitelisted address); everything else stays on the PC.
+- **⚠️ The order path cannot roam.** Wherever the whitelisted IP lives, execution is pinned to it — one IP maps to one developer profile. This constrains only the order path, never the data/research plane.
 
 ### 3.1 What must survive a restart
 
@@ -72,9 +72,9 @@ The one job that must run every trading day and cannot be backfilled is the poin
 | Line item | Estimate | Confidence |
 |---|---|---|
 | Kite Connect subscription | **₹500/month**, historical included | ✅ *verified 2026-07-22* |
-| AWS ap-south-1 host | TBD — modest; the workload is ~2 Mbps and single-host | 🟡 estimate in Phase 1 |
-| Storage | ~5 GB/day raw before compression (doc 06 §6) → retention policy drives cost | 🟡 measure in Phase 1 |
-| Elastic IP | Negligible, but **required** (§1) | ✅ |
+| Host | **₹0 — the operator's own PC (D-18)**. No cloud host in Phase 0–2 | ✅ |
+| Storage | Local disk on the PC. End-of-day + ~10 streamed names is a tiny fraction of the old ~5 GB/day intraday figure (D-16) | 🟡 measure in Phase 1 |
+| Static IP (order path only) | **₹0 until live orders.** Then either an ISP static-IP add-on (~few hundred ₹/mo) or a small Indian relay box (~₹500–1,500/mo) (D-18) | 🟡 deferred to go-live |
 | **LLM tokens** | **≈ $28,000/yr ≈ ₹2 lakh/month** at target fleet size | 🟠 *modelled 2026-07-22, unmeasured* |
 | Paid news/data feeds | Optional; only if justified by measured P&L contribution | — |
 

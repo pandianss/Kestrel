@@ -62,8 +62,8 @@ Cost and latency are managed by matching model strength to job frequency/stakes:
 
 | Concern | Choice |
 |---|---|
-| Region | AWS Mumbai (ap-south-1) — near Zerodha, low RTT to Kite |
-| Packaging | Docker; Docker Compose to start (single host) |
+| Host | The operator's **PC, in India** (D-18) — satisfies the "within India" licence by geography; no cloud host in Phase 0–2. A static IP (ISP add-on or small Indian relay box) is added only for the live order path |
+| Packaging | Run directly on the PC (Python venv) to start; containerise only if a second machine is ever added |
 | Metrics | Prometheus |
 | Dashboards | Grafana (system health, tick rates, P&L, fill quality, rate-budget headroom) |
 | Logs | Structured JSON logs (per-service), shipped to a central store (e.g. Loki) |
