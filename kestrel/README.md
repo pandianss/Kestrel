@@ -19,6 +19,7 @@ anything live.
 | `kite/auth.py` | Daily login (doc 10 §2): checksum + `request_token`→`access_token` exchange, 06:00-IST expiry math. Operator-in-the-loop; never automates the browser (G-12). Pure core, injectable HTTP. |
 | `kite/tokenstore.py` | Where the day's token lives so services can read it. 0600 file behind a `TokenStore` protocol (Redis later). `load_valid(now)` fails safe past expiry. |
 | `strategies/momentum.py` | First documented anomaly (D-17): cross-sectional momentum, a pure function of prices. |
+| `strategies/low_volatility.py` | Second documented anomaly (D-17): low-volatility, same contract as momentum. Built so the eventual point-in-time test can compare factors, not just measure one. |
 | `backtest/engine.py` | Deterministic, point-in-time, cost-aware monthly rebalance loop. Propagates the survivorship flag so a biased run can't be mistaken for a clean one. |
 | `backtest/metrics.py` | CAGR/Sharpe/maxDD **plus t-stat and information ratio** — the honest stats that expose a survivorship-inflated CAGR. |
 
@@ -26,10 +27,11 @@ anything live.
 
 ```bash
 pip install -e ".[dev]"
-python scripts/run_momentum.py        # the first empirical result + its caveat
-python scripts/kite_login.py          # daily: mint the access_token (operator-in-the-loop)
+python scripts/run_momentum.py           # the first empirical result + its caveat
+python scripts/run_factor_comparison.py  # momentum vs low-vol, head to head, honest controls
+python scripts/kite_login.py             # daily: mint the access_token (operator-in-the-loop)
 python scripts/snapshot_reference.py --require-live  # daily: archive today's universe (scheduled via deploy/scheduler/)
-pytest -q                             # 44 tests: cost traps, determinism, no look-ahead, no-overwrite, login, scheduler
+pytest -q                                # 48 tests: cost traps, determinism, no look-ahead, factors, login, scheduler
 ```
 
 ## The first result, and why it matters (2026-07-23)
