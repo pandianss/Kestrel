@@ -1,0 +1,22 @@
+[project]
+name = "kestrel"
+version = "0.0.1"
+description = "Positional, research-backed trading system (single-user). Deterministic plane."
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["kestrel*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
