@@ -27,13 +27,13 @@ _CACHE = Path("data/cache")
 _UA = {"User-Agent": "Mozilla/5.0"}
 
 
-def _chart_url(symbol: str) -> str:
+def _chart_url(symbol: str, interval: str = "1mo") -> str:
     if symbol.startswith("^"):
         q = symbol.replace("^", "%5E")
-        return f"https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=max&interval=1mo"
+        return f"https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=max&interval={interval}"
     return (
         f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.NS"
-        "?range=max&interval=1mo&events=div%2Csplit"
+        f"?range=max&interval={interval}&events=div%2Csplit"
     )
 
 
@@ -45,6 +45,39 @@ def _fetch_one(symbol: str, timeout: int = 20) -> pd.Series:
     ind = r["indicators"]
     values = ind["adjclose"][0]["adjclose"] if "adjclose" in ind else ind["quote"][0]["close"]
     return pd.Series(values, index=ts, name=symbol)
+
+
+def load_daily_ohlc(
+    symbol: str,
+    *,
+    use_cache: bool = True,
+    timeout: int = 20,
+) -> pd.DataFrame:
+    """Daily OHLC bars for one NSE `symbol`, for the execution-plane slice.
+
+    Returns a frame indexed by date with columns open/high/low/close. Split-
+    adjusted; the raw OHLC is what the fill model needs (intrabar highs/lows
+    drive stop and target evaluation — a close-only series cannot). Same
+    development-only caveats as the rest of this module.
+    """
+    _CACHE.mkdir(parents=True, exist_ok=True)
+    key = _CACHE / f"daily_ohlc_{symbol}.pkl"
+    if use_cache and key.exists():
+        return pd.read_pickle(key)
+
+    req = urllib.request.Request(_chart_url(symbol, interval="1d"), headers=_UA)
+    d = json.load(urllib.request.urlopen(req, timeout=timeout))
+    r = d["chart"]["result"][0]
+    ts = pd.to_datetime(r["timestamp"], unit="s").normalize()
+    q = r["indicators"]["quote"][0]
+    df = pd.DataFrame(
+        {"open": q["open"], "high": q["high"], "low": q["low"], "close": q["close"]},
+        index=ts,
+    ).dropna()
+    df = df[~df.index.duplicated(keep="last")].sort_index()
+    if use_cache:
+        df.to_pickle(key)
+    return df
 
 
 def load_monthly(

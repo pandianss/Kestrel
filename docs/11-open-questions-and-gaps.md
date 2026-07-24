@@ -20,8 +20,8 @@
 | [G-03](#g-03) | 🟡 | **IN DESIGN** | Data | QuestDB ingest — **largely dissolved by D-16** (stream only held names) | Phase 1 |
 | [G-09](#g-09) | 🔴 | **IN DESIGN** | Execution | Fill fidelity — conservative defaults + replay now specified | Phase 3 |
 | [G-18](#g-18) | 🔴 | OPEN | Risk | Risk limits — **starting envelope proposed** | Phase 3 |
-| [G-28](#g-28) | 🔴 | **IN DESIGN** | Execution | **No exit path existed** — Position Manager added | Phase 3 |
-| [G-29](#g-29) | 🔴 | **IN DESIGN** | Risk | **No margin model** — approach specified, values open | Phase 3 |
+| [G-28](#g-28) | 🟡 | **BUILT (cash/EOD)** | Execution | **Exit path built & tested** — deterministic Position Manager (`kestrel/execution/`); Rust + async-live remain | Phase 3 |
+| [G-29](#g-29) | 🟢 | **BUILT (CNC)** | Risk | **CNC delivery margin built** — full-cash model; F&O SPAN deferred with D-16 | Phase 3 |
 | [G-04](#g-04) | 🟡 | **IN DESIGN** | Data | Storage — **tiering, not retention** (D-15); ~$24/yr forever | Phase 1 |
 | [G-05](#g-05) | 🟠 | **CLOSED** | Regulatory | Multiple API keys — **largely not viable** | — |
 | [G-06](#g-06) | 🟠 | **IN DESIGN** | Data | Promotion policy — **priority + hysteresis specified** | Tune Phase 1 |
@@ -60,9 +60,9 @@
 | [G-42](#g-42) | 🟠 | **IN DESIGN** | Research | Not backtestable, but **D-17 gives a control** (beat the factor?) | Ongoing forward test |
 | [G-43](#g-43) | 🟠 | OPEN | Research | **Point-in-time reference data not captured** — unrecoverable | **Phase 0** |
 
-**Where the register stands:** 44 gaps — **6 blockers, 26 significant, 12 to firm up**; by status **13 OPEN, 23 IN DESIGN, 4 CLOSED, 4 ACCEPTED**.
+**Where the register stands:** 44 gaps — **4 blockers, 26 significant, 12 to firm up**; by status **13 OPEN, 21 IN DESIGN, 5 CLOSED/BUILT, 4 ACCEPTED**.
 
-**The regulatory blocker is gone.** G-02 dropped 🔴 → 🟠 once algo-provider status was resolved — **no remaining regulatory question threatens the architecture.** Of the seven blockers left, **six are engineering** (G-03, G-09, G-28, G-29, G-36 and the G-18 sign-off) and exactly one is a product question: **G-01, there is still no strategy.**
+**The regulatory blocker is gone.** G-02 dropped 🔴 → 🟠 once algo-provider status was resolved — **no remaining regulatory question threatens the architecture.** Of the blockers, the two biggest execution ones are now **built and tested** (2026-07-24): **G-28** (the deterministic exit path) is 🟡, and **G-29** (CNC delivery margin) is 🟢. That leaves **G-03, G-09, G-36 and the G-18 sign-off** on the engineering side, and exactly one product question: **G-01, the specific factor** (the frame is set — D-17 — and two factors are implemented and comparable).
 
 **Phase 0 has no external blocker left.** Both owner questions are answered (client OPS limit = 10; local storage proceeding). The only outstanding compliance item — how the generic Algo ID attaches — is discovered during wiring, not before it.
 
@@ -472,7 +472,9 @@ Sandbox and simulator support LIMIT only. `market_protection` is now carried fro
 
 *Direction (adopted):* a deterministic Rust **Position Manager** (doc 07 §4) owning stops, targets, time-exits, square-off, and feed-loss policy, running with no LLM in the path. Every ENTRY carries a mandatory `exit_plan`. The manager may tighten a stop but is never required for an exit. Risk checks may block entries but never exits. Doc 03 §2.1 records the reasoning.
 
-*Still open:* default stop/target/holding parameters (folded into G-18), and the live-mode complication that exit acknowledgement becomes asynchronous and failable (doc 07 §6).
+✅ **2026-07-24 — the exit path is built and tested** (`kestrel/execution/`). A deterministic `PositionManager` (Python; the Rust migration is a later, bounded job under D-02) evaluates every open position's `ExitPlan` against each daily bar and fires stop / target / max-holding / data-loss exits from code, with no LLM in the path. The conservative fill rules are enforced *and tested*: gap-through fills at the worse open, a favourable gap is not banked, and the stop wins an intrabar tie (doc 07 §4.2). `try_enter` rejects any entry without a sane plan and never lets the book spend cash it lacks; exits are never gated by the risk engine, including under the kill-switch. The vertical slice (`scripts/run_slice.py`) carries this end-to-end on real daily bars — all exit types fire and cash reconciles to the rupee. 27 execution tests, incl. a byte-identical-ledger determinism check.
+
+*Still open:* default stop/target/holding parameters (folded into G-18 — the slice ships conservative defaults), and the live-mode complication that exit acknowledgement becomes asynchronous and failable (doc 07 §6). **Downgrade 🔴 → 🟡:** the path exists, is deterministic, and is tested; what remains is calibration and the async-live wiring.
 
 <a id="g-39"></a>
 
@@ -506,7 +508,9 @@ Risk checks were notional- and percentage-based only. **F&O paper trading withou
 
 *2026-07-22, second pass — a trap worth naming.* A SPAN formula was briefly added in a form that read as an implementation spec. **NSE SPAN cannot be computed locally**: scan ranges and volatility shifts come from the exchange's daily risk parameter file per underlying, and a scenario-grid formula omits short-option minimum charge, calendar-spread charges, inter-month credits, and delivery margins. Building it yields a confidently wrong number that fails in the one direction this gap forbids. It is now explicitly relabelled *reference for interpreting the API's answer*, with option 1 kept visually on top. **If you must approximate, use published per-lot tables — never a home-grown scenario engine.**
 
-*Still open:* which approach, the safety factor, and how to keep the local table current.
+✅ **2026-07-24 — the CNC delivery margin model is built** (`kestrel/execution/risk.py`). Under D-16 the positional design trades **equity delivery (CNC), not F&O**, and for CNC the margin question reduces to *"is the full cash present?"* — there is no leverage and no SPAN. The risk engine enforces exactly that: an entry needs `notional + entry_cost ≤ cash × safety_factor`, the book decrements cash on every fill, and a rejected entry never touches it (tested). This is the honest, non-fiction margin model for the segment actually being traded, and it closes the gap **as it applies to the current design**.
+
+*Still open — but no longer on the critical path:* the **F&O SPAN + exposure** model (options/futures) is a live-phase concern that D-16 deferred by not trading those segments yet. When/if F&O enters scope, the direction above stands (prefer Kite's margin API; never a home-grown scenario engine). **Downgrade 🔴 → 🟢 for the positional cash design; the F&O piece reopens only if the strategy adds derivatives.**
 
 <a id="g-30"></a>
 
