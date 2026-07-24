@@ -16,6 +16,7 @@ anything live.
 | `data/reference.py` | Swappable reference sources: `KiteInstrumentsSource` (real, inert until auth) and `StaticListSource` (dev, runnable today). |
 | `data/pit.py` | Bridge: archived snapshots → `PointInTimeUniverse`. Closes the loop snapshots → PIT universe → backtest. |
 | `data/yahoo.py` | **Development-only** NSE loader. Survivorship-biased, licence-incompatible with live — for building the engine, not for conclusions. |
+| `data/kite_history.py` | **Real** Kite daily-bar loader: resolves symbol→token from the instruments snapshot, paginates + paces, injectable HTTP. Real prices — but survivorship (G-43) and dividend gaps (G-08) still apply; for calibration, not a clean verdict. |
 | `kite/auth.py` | Daily login (doc 10 §2): checksum + `request_token`→`access_token` exchange, 06:00-IST expiry math. Operator-in-the-loop; never automates the browser (G-12). Pure core, injectable HTTP. |
 | `kite/tokenstore.py` | Where the day's token lives so services can read it. 0600 file behind a `TokenStore` protocol (Redis later). `load_valid(now)` fails safe past expiry. |
 | `execution/exits.py` | Deterministic exit rules (doc 07 §2.1): stop/target/time/data-loss on daily bars. Gap-through modelled honestly, favourable gaps not banked, stop wins ties. The heart of D-07. |
