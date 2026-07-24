@@ -20,10 +20,40 @@ fallback as if it were a real trading-day snapshot. That non-zero exit is the
 signal that the operator hasn't logged in yet — treated as an expected state
 (`SuccessExitStatus=0 3`), not a crash.
 
-## Install (systemd, the deployment host — doc 10 §3)
+## Windows — the operator's PC (D-18), the primary path
 
-Assumes the repo at `/opt/kestrel`, a `.venv` there, and a non-root `kestrel`
-service user owning the repo and `data/`.
+The host is a Windows PC (D-18), and the login needs a browser 2FA (G-12) that
+cannot be unattended, so the daily driver is **one command you run each morning**
+rather than a background job:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\scheduler\morning.ps1
+```
+
+`morning.ps1` sets the credentials (prompting for the secret as a SecureString
+if it isn't already in the environment — never written to disk), runs the
+operator-in-the-loop login, and — only if a valid token results — captures the
+live snapshot in `--require-live`. About a minute, once a day.
+
+**Optional backstop.** `snapshot_task.ps1` runs the snapshot *only* (no secrets —
+it reads the already-minted token) and exits 3 if you haven't logged in yet.
+Register it as a daily Task Scheduler job so that if you log in but forget to
+snapshot, it still captures:
+
+```powershell
+$ps  = (Get-Command powershell).Source
+$arg = '-NoProfile -ExecutionPolicy Bypass -File "' +
+       (Resolve-Path deploy\scheduler\snapshot_task.ps1).Path + '"'
+schtasks /Create /TN "Kestrel Snapshot" /TR "$ps $arg" /SC DAILY /ST 09:35 /F
+```
+
+(Task Scheduler fires in the host's local time; on an India PC that is IST.)
+
+## Install (systemd — only if you move to a Linux host/relay)
+
+Not needed for the Windows PC above. For a future Linux host (e.g. the small
+order-path relay of D-18), assumes the repo at `/opt/kestrel`, a `.venv` there,
+and a non-root `kestrel` service user owning the repo and `data/`.
 
 ```bash
 sudo cp deploy/scheduler/kestrel-snapshot.service /etc/systemd/system/
