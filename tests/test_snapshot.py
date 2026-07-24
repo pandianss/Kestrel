@@ -75,12 +75,38 @@ def test_snapshot_to_pit_universe_loop(tmp_path):
                 StaticListSource(["A", "B"]).fetch(), source="dev")
     store.write("instruments", date(2026, 6, 1),
                 StaticListSource(["A", "B", "C"]).fetch(), source="dev")
-    uni = build_pit_universe(store)
+    # StaticListSource marks provenance as dev:*, so accept all sources here.
+    uni = build_pit_universe(store, source_prefix=None)
     assert uni.is_survivorship_biased is False
     assert set(uni.members_asof(date(2026, 3, 1))) == {"A", "B"}
     assert set(uni.members_asof(date(2026, 7, 1))) == {"A", "B", "C"}
 
 
+def test_pit_universe_filters_out_dev_snapshots_by_default(tmp_path):
+    """A dev-stub snapshot in the store must not contaminate a real universe.
+    Default source_prefix='kite:' admits only real snapshots."""
+    store = SnapshotStore(tmp_path)
+    # a dev stub and a (fake-but-kite-sourced) real snapshot
+    store.write("instruments", date(2026, 7, 23),
+                b"tradingsymbol\nDEVONLY\n", source="dev:static_list[1@NSE]")
+    store.write("instruments", date(2026, 7, 24),
+                b"tradingsymbol\nRELIANCE\nTCS\n", source="kite:/instruments")
+    uni = build_pit_universe(store)                       # default kite: filter
+    # the dev day is skipped entirely; only the real day is admitted
+    assert set(uni.members_asof(date(2026, 7, 24))) == {"RELIANCE", "TCS"}
+    assert set(uni.members_asof(date(2026, 7, 25))) == {"RELIANCE", "TCS"}
+    # nothing on/before the dev day, because that day was not admitted
+    assert uni.members_asof(date(2026, 7, 23)) == []
+
+
 def test_empty_store_pit_raises(tmp_path):
     with pytest.raises(ValueError):
         build_pit_universe(SnapshotStore(tmp_path))
+
+
+def test_pit_raises_when_only_dev_snapshots_present(tmp_path):
+    store = SnapshotStore(tmp_path)
+    store.write("instruments", date(2026, 7, 23),
+                b"tradingsymbol\nDEVONLY\n", source="dev:static_list[1@NSE]")
+    with pytest.raises(ValueError):
+        build_pit_universe(store)   # default kite: filter admits nothing
