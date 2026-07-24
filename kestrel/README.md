@@ -25,6 +25,8 @@ anything live.
 | `execution/manager.py` | The Position Manager (doc 07 §4): owns positions, fires exits from code, carries the conservative end-of-day fill model. Deterministic, no LLM in the loss path. |
 | `strategies/momentum.py` | First documented anomaly (D-17): cross-sectional momentum, a pure function of prices. |
 | `strategies/low_volatility.py` | Second documented anomaly (D-17): low-volatility, same contract as momentum. Built so the eventual point-in-time test can compare factors, not just measure one. |
+| `strategies/value.py` | Third documented anomaly (D-17): value (earnings/book yield), same contract. Needs point-in-time fundamentals; runs on a dev source today, real feed deferred (an owner data decision). |
+| `data/fundamentals.py` | Point-in-time fundamentals: dated, reporting-lagged records; `asof()` returns only what was **public** by the query date — the value look-ahead guard. Dev source built, vendor feed deferred. |
 | `backtest/engine.py` | Deterministic, point-in-time, cost-aware monthly rebalance loop. Propagates the survivorship flag so a biased run can't be mistaken for a clean one. |
 | `backtest/metrics.py` | CAGR/Sharpe/maxDD **plus t-stat and information ratio** — the honest stats that expose a survivorship-inflated CAGR. |
 
@@ -37,7 +39,7 @@ python scripts/run_factor_comparison.py  # momentum vs low-vol, head to head, ho
 python scripts/run_slice.py              # the vertical slice: one instrument through the exit path
 python scripts/kite_login.py             # daily: mint the access_token (operator-in-the-loop)
 python scripts/snapshot_reference.py --require-live  # daily: archive today's universe (scheduled via deploy/scheduler/)
-pytest -q                                # 75 tests: cost traps, determinism, no look-ahead, factors, exits, sizing, login
+pytest -q                                # 81 tests: cost traps, determinism, no look-ahead, factors, exits, sizing, login
 ```
 
 ## The first result, and why it matters (2026-07-23)
