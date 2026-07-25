@@ -96,36 +96,27 @@ def gather() -> dict:
     return state
 
 
-#: Conventional local paths a source writes to. When data lands here, the
-#: matching recommendation self-clears — the panel reflects real state, not a
-#: static list.
-DATA_PATHS = {
-    "constituents": "data/reference/constituents",
-    "fundamentals": "data/fundamentals",
-    "dividends": "data/dividends",
-}
-
-
-def _has_data(path: str) -> bool:
-    p = Path(path)
-    return p.exists() and any(p.rglob("*.*"))
+def _has_constituents() -> bool:
+    base = Path("data/snapshots")
+    return base.exists() and any(base.glob("constituents_*"))
 
 
 def _recommendations(state: dict) -> list[dict]:
-    """Derive pending decisions from actual local state: a recommendation is
-    shown only while its data source is absent, so acting on one clears it."""
+    """Derive pending items from actual local state — the three data sources are
+    now built, so what remains is coverage and genuinely-deferred decisions."""
+    funda_n = len(state.get("fundamentals", []))
     candidates = [
-        {"pri": "med", "title": "Decide a stock-universe source",
-         "done": _has_data(DATA_PATHS["constituents"]),
-         "why": "The instruments filter yields ~9.8k cash-segment names incl. bonds/ETFs, not a clean stock list. Index constituents (e.g. NIFTY 500 by date) also fixes survivorship (G-43)."},
-        {"pri": "med", "title": "Wire a point-in-time fundamentals feed",
-         "done": _has_data(DATA_PATHS["fundamentals"]),
-         "why": "Ingest company results as filed (NSE/BSE XBRL or a vendor) into the point-in-time store; feeds the value & quality factors. Kite provides none."},
-        {"pri": "med", "title": "Decide a dividend-events source",
-         "done": _has_data(DATA_PATHS["dividends"]),
-         "why": "Kite adjusts splits/bonuses only; ex-div gaps are artefacts until a dividend feed drives adjust_for_dividends (G-08)."},
+        {"pri": "med", "title": "Snapshot index constituents",
+         "done": _has_constituents(),
+         "why": "Run scripts/snapshot_constituents.py to build the clean stock universe (NIFTY 500) and start point-in-time membership (G-43)."},
+        {"pri": "med", "title": "Run the full fundamentals harvest",
+         "done": funda_n >= 100,
+         "why": f"Only {funda_n} symbol(s) ingested. Run scripts/harvest_fundamentals.py for the full filing set (feeds value/earnings)."},
+        {"pri": "low", "title": "Quality/ROE needs balance-sheet data",
+         "done": False,
+         "why": "A results XBRL gives EPS/revenue/PAT but not net worth, so ROE-based quality needs annual filings or a vendor — value/earnings works today."},
         {"pri": "low", "title": "Static IP — only at live-order stage",
-         "done": False,   # not locally detectable; stays as an informational note
+         "done": False,
          "why": "Not needed for research/data. Source an ISP static IP or small Indian relay box before placing live orders (D-18)."},
     ]
     return [c for c in candidates if not c["done"]]

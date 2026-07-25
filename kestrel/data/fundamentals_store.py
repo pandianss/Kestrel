@@ -80,6 +80,12 @@ class FundamentalsStore:
             f.write(_to_json(record) + "\n")
         return True
 
+    def has(self, symbol: str, period_end: date, publish_date: date) -> bool:
+        """True if this exact filing is already stored — lets a harvest resume
+        without re-fetching what it already has."""
+        key = (period_end, publish_date)
+        return any((e.period_end, e.publish_date) == key for e in self._load(symbol))
+
     def asof(self, symbol: str, d: date) -> FundamentalRecord | None:
         """FundamentalsSource: the latest record for `symbol` that was public on
         or before `d` (by publish_date)."""

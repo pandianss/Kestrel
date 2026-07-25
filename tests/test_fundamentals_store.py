@@ -23,6 +23,15 @@ def test_add_and_asof_roundtrip(tmp_path):
     assert s.symbols() == ["X"]
 
 
+def test_has_supports_resumable_harvest(tmp_path):
+    s = FundamentalsStore(tmp_path)
+    r = record_with_lag("X", date(2024, 3, 31), 10, 100)   # publish ~2024-05-15
+    assert s.has("X", r.period_end, r.publish_date) is False
+    s.add(r)
+    assert s.has("X", r.period_end, r.publish_date) is True
+    assert s.has("X", date(2024, 6, 30), r.publish_date) is False   # different period
+
+
 def test_reingest_is_idempotent(tmp_path):
     s = FundamentalsStore(tmp_path)
     r = record_with_lag("X", date(2024, 3, 31), 10, 100)

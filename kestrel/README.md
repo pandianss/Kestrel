@@ -44,9 +44,10 @@ python scripts/run_slice.py              # the vertical slice: one instrument th
 python scripts/kite_login.py             # daily: mint the access_token (operator-in-the-loop)
 python scripts/snapshot_reference.py --require-live  # daily: archive today's universe (scheduled via deploy/scheduler/)
 python scripts/pull_history.py SYMBOL    # (after login) real Kite daily bars, cached
-python scripts/ingest_fundamentals.py    # filed results -> point-in-time store (dev source; NSE feed pending calibration)
+python scripts/snapshot_constituents.py  # daily: snapshot NIFTY 500 -> clean point-in-time stock universe
+python scripts/harvest_fundamentals.py   # ingest NSE results filings (current-quarter EPS) into the store
 python scripts/dashboard.py              # local on-host dashboard -> dashboard.html (open in a browser)
-pytest -q                                # 117 tests: costs, determinism, no look-ahead, 4 factors, exits, sizing, filings
+pytest -q                                # 133 tests: costs, determinism, factors, exits, filings, constituents, dividends
 ```
 
 ## The first result, and why it matters (2026-07-23)
