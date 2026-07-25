@@ -45,23 +45,27 @@ if (-not $env:KITE_API_SECRET) {
     }
 }
 
-Write-Host "`n[1/2] Minting today's Kite token (browser login) ..." -ForegroundColor Cyan
+Write-Host "`n[1/3] Minting today's Kite token (browser login) ..." -ForegroundColor Cyan
 & $py scripts/kite_login.py
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Login did not complete (exit $LASTEXITCODE). Snapshot skipped." -ForegroundColor Yellow
     exit $LASTEXITCODE
 }
 
-Write-Host "`n[2/2] Capturing the live reference snapshot ..." -ForegroundColor Cyan
+Write-Host "`n[2/3] Capturing the live reference snapshot ..." -ForegroundColor Cyan
 & $py scripts/snapshot_reference.py --require-live
 $rc = $LASTEXITCODE
 
 # The secret has done its job; clear it from this process now.
 Remove-Item Env:\KITE_API_SECRET -ErrorAction SilentlyContinue
 
+# Refresh the dashboard so it reflects the fresh token + today's snapshot.
+Write-Host "`n[3/3] Refreshing the local dashboard ..." -ForegroundColor Cyan
+& $py scripts/dashboard.py
+
 if ($rc -eq 0) {
-    Write-Host "`nDone. Today's universe is captured." -ForegroundColor Green
+    Write-Host "`nDone. Today's universe is captured; dashboard refreshed." -ForegroundColor Green
 } else {
-    Write-Host "`nSnapshot exit $rc — see the message above." -ForegroundColor Yellow
+    Write-Host "`nSnapshot exit $rc — see the message above. Dashboard still refreshed." -ForegroundColor Yellow
 }
 exit $rc

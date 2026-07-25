@@ -237,6 +237,7 @@ footer {{ margin-top:36px; color:var(--muted); font-size:12px; border-top:1px so
 </style></head><body><div class="wrap">
 <h1>Kestrel — Operator Dashboard</h1>
 <div class="sub">Generated {html.escape(state["generated"])} · single-user, on-host (data stays local)</div>
+<div class="sub">Static snapshot — re-run <code>python scripts/dashboard.py</code> to refresh (the daily <code>morning.ps1</code> does this automatically). The token expires 06:00 IST daily, so it reads EXPIRED until the next morning mint.</div>
 
 <h2>What the pipeline is doing</h2>
 {_pipeline(state)}
