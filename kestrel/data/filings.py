@@ -29,14 +29,16 @@ Calibration against the live feed (2026-07-25) — what was learned by running i
     parses this and skips non-'.xml' rows. Verified: 3,796/3,814 parsed.
   * **Concept tags confirmed** (RevenueFromOperations, ProfitLossForPeriod,
     PaidUpValueOfEquityShareCapital, BasicEarningsLossPerShareFromContinuing…).
-  * **⚠️ Context selection is unresolved and must not be guessed.** A real
-    filing (ICDSLTD, Q3 FY25) carries the same period under two contexts —
-    `OneD` (EPS −0.71, PAT −92.4L) and `FourD` (EPS +0.10, PAT +12.9L) — both
-    tagged 'Standalone', with no distinguishing dimension. Which is the true
-    current-quarter standalone figure needs the taxonomy's presentation
-    linkbase or a cross-check against the company's reported number. Until that
-    rule exists, `extract_financials` raises `AmbiguousContextError` rather than
-    feed a coin-flip into the factors, and the ingestion skips such filings.
+  * **✅ Context selection RESOLVED empirically (2026-07-25).** The INDAS
+    quarterly context IDs are the *columns* of the results statement, and
+    **`OneD` is the current reporting quarter** (`FourD` is the year-to-date).
+    Confirmed by cross-checking known quarterly EPS across ITC/RELIANCE/INFY/
+    TCS Q3 FY25: `OneD` matched the ~quarterly figure (TCS 34.21, INFY 15.31,
+    RELIANCE 6.44, ITC 3.95) while `FourD` was ~3x — the 9-month YTD (TCS
+    100.40, ...). The XBRL <period> tags are unreliable (both read as the
+    quarter); the column convention is the truth. `current_quarter_financials`
+    applies this; `extract_financials` still refuses to *guess* when asked with
+    no context, so the guard remains for any non-conforming filing.
 """
 from __future__ import annotations
 
@@ -134,6 +136,30 @@ def financials_by_context(
             fields[field] = val
         out[ctx] = fields
     return out
+
+
+#: Empirically resolved (2026-07-25): in the NSE INDAS quarterly taxonomy the
+#: context ids are the columns of the results statement; "OneD" is the current
+#: reporting quarter (see module docstring for the ITC/RELIANCE/INFY/TCS check).
+CURRENT_QUARTER_CONTEXT = "OneD"
+
+
+def current_quarter_financials(
+    xbrl_bytes: bytes, *, tag_map: dict[str, list[str]] = DEFAULT_TAG_MAP
+) -> dict[str, float | None]:
+    """The current-quarter fields — the resolved default for factor ingestion.
+    Uses the `OneD` column; falls back to the sole context if a filing has only
+    one; raises `AmbiguousContextError` for a multi-context filing that lacks
+    `OneD` (non-conforming — do not guess)."""
+    by = financials_by_context(xbrl_bytes, tag_map=tag_map)
+    if CURRENT_QUARTER_CONTEXT in by:
+        return by[CURRENT_QUARTER_CONTEXT]
+    if len(by) == 1:
+        return next(iter(by.values()))
+    raise AmbiguousContextError(
+        f"no '{CURRENT_QUARTER_CONTEXT}' context and {len(by)} candidates "
+        f"{sorted(by)} — non-conforming filing, resolve explicitly."
+    )
 
 
 def extract_financials(

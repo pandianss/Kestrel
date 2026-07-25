@@ -9,6 +9,7 @@ from kestrel.data.filings import (
     FiledResult,
     NSEFilingsSource,
     StaticFilings,
+    current_quarter_financials,
     extract_financials,
     financials_by_context,
     parse_xbrl_facts,
@@ -64,6 +65,22 @@ def test_extract_financials_uses_explicit_context():
 def test_extract_financials_single_context_is_unambiguous():
     fin = extract_financials(ONE_CTX_XBRL)
     assert fin["basic_eps"] == 9.0 and fin["net_profit"] == 150_000.0
+
+
+def test_current_quarter_picks_OneD():
+    # OneD = current quarter (resolved 2026-07-25) -> the -0.71, not FourD's 0.10
+    assert current_quarter_financials(SAMPLE_XBRL)["basic_eps"] == -0.71
+
+
+def test_current_quarter_falls_back_to_single_context():
+    assert current_quarter_financials(ONE_CTX_XBRL)["basic_eps"] == 9.0
+
+
+def test_current_quarter_raises_when_no_OneD_and_multiple():
+    xb = (b'<xbrl><ProfitLossForPeriod contextRef="TwoD">1</ProfitLossForPeriod>'
+          b'<ProfitLossForPeriod contextRef="FourD">2</ProfitLossForPeriod></xbrl>')
+    with pytest.raises(AmbiguousContextError):
+        current_quarter_financials(xb)
 
 
 def test_static_filings_recent_and_fetch():
