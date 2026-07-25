@@ -99,6 +99,28 @@ def build_pit_universe(
 def build_nse_equity_universe(store: SnapshotStore, **kw) -> PointInTimeUniverse:
     """Convenience: the point-in-time universe of NSE cash-equity names only —
     the right universe for an equity factor backtest. Equivalent to
-    `build_pit_universe(store, include=nse_equity_row, ...)`."""
+    `build_pit_universe(store, include=nse_equity_row, ...)`.
+
+    Note: the cash segment still includes ETFs/bonds (doc 11). Prefer
+    `build_index_universe` for a clean *stock* universe once constituents are
+    snapshotted."""
     kw.setdefault("include", nse_equity_row)
+    return build_pit_universe(store, **kw)
+
+
+def _equity_series_row(row: dict) -> bool:
+    return (row.get("Series") or "EQ").strip() in ("EQ", "BE")
+
+
+def build_index_universe(
+    store: SnapshotStore, index: str = "nifty500", **kw
+) -> PointInTimeUniverse:
+    """The clean point-in-time **stock** universe from snapshotted index
+    constituents (e.g. NIFTY 500) — no ETFs/bonds, and survivorship-safe going
+    forward (G-43). Reads the `constituents_<index>` dataset written by
+    `scripts/snapshot_constituents.py`."""
+    kw.setdefault("dataset", f"constituents_{index}")
+    kw.setdefault("symbol_col", "Symbol")
+    kw.setdefault("source_prefix", "nse:")
+    kw.setdefault("include", _equity_series_row)
     return build_pit_universe(store, **kw)
