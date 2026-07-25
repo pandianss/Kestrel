@@ -61,10 +61,11 @@ def _plan() -> ExitPlan:
     )
 
 
-def main() -> None:
-    symbol = sys.argv[1] if len(sys.argv) > 1 else "RELIANCE"
+def run_slice(symbol: str, *, start: str = "2015-01-01") -> dict:
+    """Run the slice for one symbol and return a stats dict. Shared by the CLI
+    and the local dashboard so both report identical numbers."""
     df, source = _load(symbol)
-    df = df[df.index >= "2015-01-01"]
+    df = df[df.index >= start]
     sma = df["close"].rolling(SMA_WINDOW).mean()
 
     book = Book(cash=CAPITAL)
@@ -73,7 +74,7 @@ def main() -> None:
 
     pending_entry = False   # signal latched on the prior close
     dates = list(df.index)
-    for i, d in enumerate(dates):
+    for d in dates:
         row = df.loc[d]
         bar = Bar(d.date(), float(row["open"]), float(row["high"]),
                   float(row["low"]), float(row["close"]))
@@ -103,35 +104,45 @@ def main() -> None:
         pm.on_bar(symbol, Bar(dates[-1].date(), float(last["open"]), float(last["high"]),
                               float(last["close"]), float(last["close"])), feed_ok=False)
 
-    _report(symbol, book, df, source)
-
-
-def _report(symbol: str, book: Book, df: pd.DataFrame, source: str) -> None:
     trades = book.trades
-    print(f"\nVertical slice — {symbol}  [{source}], "
-          f"{df.index[0].date()} → {df.index[-1].date()}")
-    print(f"Entry: close > {SMA_WINDOW}d SMA (placeholder).  "
-          f"Exit: 15% trailing stop / 30% target / 180d time.\n")
-    if not trades:
-        print("  no trades")
-        return
-
     by_reason: dict[str, int] = {}
     for t in trades:
         by_reason[t.reason] = by_reason.get(t.reason, 0) + 1
     wins = [t for t in trades if t.net_pnl > 0]
-    gross = sum(t.gross_pnl for t in trades)
-    costs = sum(t.costs for t in trades)
-    net = sum(t.net_pnl for t in trades)
+    return {
+        "symbol": symbol,
+        "source": source,
+        "start": df.index[0].date().isoformat(),
+        "end": df.index[-1].date().isoformat(),
+        "trades": len(trades),
+        "exit_reasons": by_reason,
+        "win_rate": (len(wins) / len(trades)) if trades else 0.0,
+        "avg_hold_days": (sum(t.held_days for t in trades) / len(trades)) if trades else 0,
+        "gross_pnl": sum(t.gross_pnl for t in trades),
+        "costs": sum(t.costs for t in trades),
+        "net_pnl": sum(t.net_pnl for t in trades),
+        "final_cash": book.cash,
+        "capital": CAPITAL,
+    }
 
-    print(f"  trades           : {len(trades)}")
-    print(f"  exit reasons     : " + ", ".join(f"{k}={v}" for k, v in sorted(by_reason.items())))
-    print(f"  win rate         : {len(wins)/len(trades):.0%}")
-    print(f"  avg hold (days)  : {sum(t.held_days for t in trades)/len(trades):.0f}")
-    print(f"  gross P&L        : ₹{gross:,.0f}")
-    print(f"  costs charged    : ₹{costs:,.0f}   ({costs/CAPITAL:.2%} of capital)")
-    print(f"  net P&L          : ₹{net:,.0f}")
-    print(f"  final cash       : ₹{book.cash:,.0f}")
+
+def main() -> None:
+    symbol = sys.argv[1] if len(sys.argv) > 1 else "RELIANCE"
+    s = run_slice(symbol)
+    print(f"\nVertical slice — {s['symbol']}  [{s['source']}], {s['start']} → {s['end']}")
+    print(f"Entry: close > {SMA_WINDOW}d SMA (placeholder).  "
+          f"Exit: 15% trailing stop / 30% target / 180d time.\n")
+    if not s["trades"]:
+        print("  no trades")
+        return
+    print(f"  trades           : {s['trades']}")
+    print(f"  exit reasons     : " + ", ".join(f"{k}={v}" for k, v in sorted(s['exit_reasons'].items())))
+    print(f"  win rate         : {s['win_rate']:.0%}")
+    print(f"  avg hold (days)  : {s['avg_hold_days']:.0f}")
+    print(f"  gross P&L        : ₹{s['gross_pnl']:,.0f}")
+    print(f"  costs charged    : ₹{s['costs']:,.0f}   ({s['costs']/s['capital']:.2%} of capital)")
+    print(f"  net P&L          : ₹{s['net_pnl']:,.0f}")
+    print(f"  final cash       : ₹{s['final_cash']:,.0f}")
     print(f"\n  This demonstrates the exit path and cash accounting, not an edge.")
     print(f"  Costs are real (incl. the flat DP charge per sell); exits are all")
     print(f"  code-decided; the book never went cash-negative. (G-28, G-29, D-07)\n")

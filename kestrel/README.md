@@ -40,7 +40,9 @@ python scripts/run_factor_comparison.py  # momentum vs low-vol, head to head, ho
 python scripts/run_slice.py              # the vertical slice: one instrument through the exit path
 python scripts/kite_login.py             # daily: mint the access_token (operator-in-the-loop)
 python scripts/snapshot_reference.py --require-live  # daily: archive today's universe (scheduled via deploy/scheduler/)
-pytest -q                                # 81 tests: cost traps, determinism, no look-ahead, factors, exits, sizing, login
+python scripts/pull_history.py SYMBOL    # (after login) real Kite daily bars, cached
+python scripts/dashboard.py              # local on-host dashboard -> dashboard.html (open in a browser)
+pytest -q                                # 100 tests: costs, determinism, no look-ahead, factors, exits, sizing, login, history
 ```
 
 ## The first result, and why it matters (2026-07-23)
