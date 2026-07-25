@@ -27,7 +27,10 @@ anything live.
 | `strategies/momentum.py` | First documented anomaly (D-17): cross-sectional momentum, a pure function of prices. |
 | `strategies/low_volatility.py` | Second documented anomaly (D-17): low-volatility, same contract as momentum. Built so the eventual point-in-time test can compare factors, not just measure one. |
 | `strategies/value.py` | Third documented anomaly (D-17): value (earnings/book yield), same contract. Needs point-in-time fundamentals; runs on a dev source today, real feed deferred (an owner data decision). |
-| `data/fundamentals.py` | Point-in-time fundamentals: dated, reporting-lagged records; `asof()` returns only what was **public** by the query date — the value look-ahead guard. Dev source built, vendor feed deferred. |
+| `strategies/quality.py` | Fourth documented anomaly (D-17): quality/profitability (ROE), same contract. Reads fundamentals point-in-time. |
+| `data/fundamentals.py` | Point-in-time fundamentals schema: dated, reporting-lagged records; `asof()` returns only what was **public** by the query date — the value/quality look-ahead guard. |
+| `data/fundamentals_store.py` | Where filed results accumulate immutably (JSONL/symbol). Keeps original + restatements by publish_date; `asof()` picks what was public then. Implements `FundamentalsSource`. |
+| `data/filings.py` | The results feed: `parse_xbrl_facts` (solid), `extract_financials` (heuristic, needs calibration), `NSEFilingsSource` (structured, inert until on-host tuning), `StaticFilings` (dev). |
 | `backtest/engine.py` | Deterministic, point-in-time, cost-aware monthly rebalance loop. Propagates the survivorship flag so a biased run can't be mistaken for a clean one. |
 | `backtest/metrics.py` | CAGR/Sharpe/maxDD **plus t-stat and information ratio** — the honest stats that expose a survivorship-inflated CAGR. |
 
@@ -41,8 +44,9 @@ python scripts/run_slice.py              # the vertical slice: one instrument th
 python scripts/kite_login.py             # daily: mint the access_token (operator-in-the-loop)
 python scripts/snapshot_reference.py --require-live  # daily: archive today's universe (scheduled via deploy/scheduler/)
 python scripts/pull_history.py SYMBOL    # (after login) real Kite daily bars, cached
+python scripts/ingest_fundamentals.py    # filed results -> point-in-time store (dev source; NSE feed pending calibration)
 python scripts/dashboard.py              # local on-host dashboard -> dashboard.html (open in a browser)
-pytest -q                                # 100 tests: costs, determinism, no look-ahead, factors, exits, sizing, login, history
+pytest -q                                # 117 tests: costs, determinism, no look-ahead, 4 factors, exits, sizing, filings
 ```
 
 ## The first result, and why it matters (2026-07-23)
