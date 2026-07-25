@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import http.cookiejar
 import urllib.request
+from datetime import date, datetime
 from typing import Callable
+
+
+def nse_date(s: str) -> date:
+    """Parse NSE's 'DD-Mon-YYYY' dates (optionally with a trailing ' HH:MM')."""
+    return datetime.strptime(s.strip().split(" ")[0], "%d-%b-%Y").date()
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/122.0 Safari/537.36")
