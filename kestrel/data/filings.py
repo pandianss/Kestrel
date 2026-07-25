@@ -19,19 +19,39 @@ Honest boundaries (the same shape as every other real source here):
     fitted one).
 
   * **`NSEFilingsSource` is structured but inert without live tuning.** NSE's
-    endpoints need browser-like headers/cookies and their JSON shape drifts, so
-    the real fetch is left injectable and must be run + calibrated on the
-    operator's host. `StaticFilings` runs the whole pipeline today.
+    endpoints need browser-like headers/cookies, so the real fetch is left
+    injectable. `StaticFilings` runs the whole pipeline today.
+
+Calibration against the live feed (2026-07-25) — what was learned by running it:
+  * **JSON shape confirmed.** The results API returns ~3,800 rows; dates are
+    'DD-Mon-YYYY' (filingDate carries a time), and many recent rows have a
+    placeholder `xbrl` of '-' until the archive is populated. `recent()` now
+    parses this and skips non-'.xml' rows. Verified: 3,796/3,814 parsed.
+  * **Concept tags confirmed** (RevenueFromOperations, ProfitLossForPeriod,
+    PaidUpValueOfEquityShareCapital, BasicEarningsLossPerShareFromContinuing…).
+  * **⚠️ Context selection is unresolved and must not be guessed.** A real
+    filing (ICDSLTD, Q3 FY25) carries the same period under two contexts —
+    `OneD` (EPS −0.71, PAT −92.4L) and `FourD` (EPS +0.10, PAT +12.9L) — both
+    tagged 'Standalone', with no distinguishing dimension. Which is the true
+    current-quarter standalone figure needs the taxonomy's presentation
+    linkbase or a cross-check against the company's reported number. Until that
+    rule exists, `extract_financials` raises `AmbiguousContextError` rather than
+    feed a coin-flip into the factors, and the ingestion skips such filings.
 """
 from __future__ import annotations
 
 import io
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Callable, Protocol, runtime_checkable
 
 from kestrel.data.fundamentals import FundamentalRecord
+
+
+def _nse_date(s: str) -> date:
+    """Parse NSE's 'DD-Mon-YYYY' dates (optionally with a ' HH:MM' time)."""
+    return datetime.strptime(s.strip().split(" ")[0], "%d-%b-%Y").date()
 
 
 @dataclass(frozen=True)
@@ -67,43 +87,75 @@ def parse_xbrl_facts(xbrl_bytes: bytes) -> dict[str, dict[str, float]]:
     return facts
 
 
-#: Concept local-names for the fields we need, most-common first. A real feed
-#: will surface variants; this is the starting map, to be calibrated.
+#: Concept local-names for the fields we need — CONFIRMED against a real NSE
+#: INDAS results XBRL (2026-07-25 calibration). Most-common first; a real feed
+#: still surfaces variants.
 DEFAULT_TAG_MAP = {
     "revenue": ["RevenueFromOperations", "Revenue", "TotalIncome"],
-    "net_profit": ["ProfitLossForPeriod", "ProfitLossForThePeriod",
-                   "ProfitLossAfterTaxFromContinuingOperations"],
+    "net_profit": ["ProfitLossForPeriod", "ProfitLossForPeriodFromContinuingOperations"],
     "basic_eps": ["BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
-                  "BasicEarningsPerShare", "BasicEarningsLossPerShare"],
+                  "BasicEarningsLossPerShareFromContinuingOperations",
+                  "BasicEarningsPerShare"],
     "equity_capital": ["PaidUpValueOfEquityShareCapital", "PaidUpEquityShareCapital"],
+    "face_value": ["FaceValueOfEquityShareCapital"],
 }
+
+
+class AmbiguousContextError(Exception):
+    """Raised when a filing has several period contexts and none was specified.
+    Discovered during 2026-07-25 calibration: an NSE INDAS results XBRL can hold
+    multiple contexts with the SAME period and nature yet DIFFERENT values
+    (e.g. OneD vs FourD). Picking one by a heuristic silently risks the wrong
+    number — the caller must choose the context explicitly (validated per the
+    presentation linkbase or cross-checked against the company's reported
+    figure) rather than let the parser guess."""
+
+
+def financials_by_context(
+    xbrl_bytes: bytes, *, tag_map: dict[str, list[str]] = DEFAULT_TAG_MAP
+) -> dict[str, dict[str, float | None]]:
+    """{context_ref: {field: value}} for every context that carries any mapped
+    field. This is the honest primitive: it exposes *all* candidates rather than
+    collapsing to one, so the ambiguity is visible instead of hidden."""
+    facts = parse_xbrl_facts(xbrl_bytes)
+    contexts: set[str] = set()
+    for concepts in tag_map.values():
+        for c in concepts:
+            contexts.update(facts.get(c, {}).keys())
+    out: dict[str, dict[str, float | None]] = {}
+    for ctx in sorted(contexts):
+        fields: dict[str, float | None] = {}
+        for field, concepts in tag_map.items():
+            val: float | None = None
+            for c in concepts:
+                if c in facts and ctx in facts[c]:
+                    val = facts[c][ctx]
+                    break
+            fields[field] = val
+        out[ctx] = fields
+    return out
 
 
 def extract_financials(
     xbrl_bytes: bytes,
     *,
     tag_map: dict[str, list[str]] = DEFAULT_TAG_MAP,
-    prefer_context: str | None = None,
+    context: str | None = None,
 ) -> dict[str, float | None]:
-    """Pull the fields we need from an XBRL filing. ⚠️ Heuristic — see module
-    docstring. For each field, the first matching concept is used; the value is
-    from `prefer_context` if given, else the fact with the largest magnitude
-    (a rough 'headline / current period' pick that must be validated against
-    real filings)."""
-    facts = parse_xbrl_facts(xbrl_bytes)
-    out: dict[str, float | None] = {}
-    for field, concepts in tag_map.items():
-        val: float | None = None
-        for c in concepts:
-            if c in facts:
-                by_ctx = facts[c]
-                if prefer_context and prefer_context in by_ctx:
-                    val = by_ctx[prefer_context]
-                else:
-                    val = max(by_ctx.values(), key=abs)
-                break
-        out[field] = val
-    return out
+    """The mapped fields for one context. If `context` is given, that context is
+    used. If the filing has exactly one period context, it is used. Otherwise
+    `AmbiguousContextError` — never a silent guess (2026-07-25 calibration)."""
+    by = financials_by_context(xbrl_bytes, tag_map=tag_map)
+    if context is not None:
+        if context not in by:
+            raise KeyError(f"context {context!r} not in filing; have {sorted(by)}")
+        return by[context]
+    if len(by) == 1:
+        return next(iter(by.values()))
+    raise AmbiguousContextError(
+        f"{len(by)} period contexts {sorted(by)} carry different values — pass "
+        f"context=... explicitly (see filings.py calibration note)."
+    )
 
 
 # --- sources -------------------------------------------------------------
@@ -158,17 +210,22 @@ class NSEFilingsSource:
         import json
 
         rows = json.loads(self._http(_NSE_RESULTS_URL))
+        if isinstance(rows, dict):
+            rows = rows.get("data", [])
         out: list[FiledResult] = []
         for r in rows:
             try:
-                fd = date.fromisoformat(r["filingDate"][:10])
+                xbrl = r.get("xbrl", "")
+                if not xbrl.lower().endswith(".xml"):
+                    continue   # rows without a real XBRL (placeholder "-") are useless
+                fd = _nse_date(r["filingDate"])   # "25-Jun-2026 16:39" -> date
                 if fd < since:
                     continue
                 out.append(FiledResult(
                     symbol=r["symbol"],
-                    period_end=date.fromisoformat(r["toDate"][:10]),
+                    period_end=_nse_date(r["toDate"]),   # "31-Dec-2024"
                     filing_date=fd,
-                    xbrl_url=r.get("xbrl", ""),
+                    xbrl_url=xbrl,
                 ))
             except (KeyError, ValueError):
                 continue   # shape drift on a row is skipped, not fatal

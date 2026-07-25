@@ -37,13 +37,22 @@ DEV_SOURCE = StaticFilings([
 ])
 
 
-def ingest(source: FilingsSource, store: FundamentalsStore, since: date) -> int:
-    """Fetch, parse, and store filings since `since`. Returns count written."""
-    from kestrel.data.filings import extract_financials
+def ingest(source: FilingsSource, store: FundamentalsStore, since: date,
+           *, context: str | None = None) -> int:
+    """Fetch, parse, and store filings since `since`. Returns count written.
+    `context` selects the XBRL period context (e.g. standalone current quarter)
+    when a filing is ambiguous; ambiguous filings are skipped, never guessed."""
+    from kestrel.data.filings import AmbiguousContextError, extract_financials
 
     written = 0
     for filed in source.recent(since):
-        fin = extract_financials(source.fetch_xbrl(filed))
+        try:
+            fin = extract_financials(source.fetch_xbrl(filed), context=context)
+        except AmbiguousContextError:
+            # Never guess between standalone/consolidated same-period contexts.
+            print(f"  skip {filed.symbol} {filed.period_end}: ambiguous context "
+                  f"(pass context=... once the standalone/consolidated rule is set)")
+            continue
         eps = fin.get("basic_eps")
         if eps is None:
             print(f"  skip {filed.symbol} {filed.period_end}: no EPS parsed")

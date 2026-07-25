@@ -5,50 +5,65 @@ from datetime import date
 import pytest
 
 from kestrel.data.filings import (
+    AmbiguousContextError,
     FiledResult,
     NSEFilingsSource,
     StaticFilings,
     extract_financials,
+    financials_by_context,
     parse_xbrl_facts,
     to_record,
 )
 from kestrel.data.fundamentals_store import FundamentalsStore
 
+# Shaped after a real NSE INDAS results XBRL (2026-07-25 calibration): the SAME
+# period appears under two contexts (OneD, FourD) with DIFFERENT values — the
+# ambiguity that must not be guessed.
 SAMPLE_XBRL = (
     b'<xbrl xmlns:f="urn:x">'
-    b'<f:RevenueFromOperations contextRef="Q3" unitRef="INR">1000000</f:RevenueFromOperations>'
-    b'<f:RevenueFromOperations contextRef="YTD" unitRef="INR">2500000</f:RevenueFromOperations>'
-    b'<f:ProfitLossForPeriod contextRef="Q3" unitRef="INR">150000</f:ProfitLossForPeriod>'
-    b'<f:BasicEarningsPerShare contextRef="Q3" unitRef="INR">12.5</f:BasicEarningsPerShare>'
-    b'<f:CompanyName contextRef="Q3">Ignore Me Ltd</f:CompanyName>'   # non-numeric, skipped
+    b'<f:RevenueFromOperations contextRef="OneD">3327000</f:RevenueFromOperations>'
+    b'<f:ProfitLossForPeriod contextRef="OneD">-9237000</f:ProfitLossForPeriod>'
+    b'<f:BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="OneD">-0.71</f:BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations>'
+    b'<f:ProfitLossForPeriod contextRef="FourD">1293000</f:ProfitLossForPeriod>'
+    b'<f:BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="FourD">0.10</f:BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations>'
+    b'<f:NameOfTheCompany contextRef="OneD">Ignore Me Ltd</f:NameOfTheCompany>'   # non-numeric
     b'</xbrl>'
+)
+
+# A single-context filing (unambiguous)
+ONE_CTX_XBRL = (
+    b'<xbrl><BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="OneD">'
+    b'9.0</BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations>'
+    b'<ProfitLossForPeriod contextRef="OneD">150000</ProfitLossForPeriod></xbrl>'
 )
 
 
 def test_parse_xbrl_facts_extracts_numeric_by_context():
     facts = parse_xbrl_facts(SAMPLE_XBRL)
-    assert facts["RevenueFromOperations"] == {"Q3": 1_000_000.0, "YTD": 2_500_000.0}
-    assert facts["ProfitLossForPeriod"]["Q3"] == 150_000.0
-    assert facts["BasicEarningsPerShare"]["Q3"] == 12.5
-    assert "CompanyName" not in facts          # non-numeric ignored
+    assert facts["ProfitLossForPeriod"] == {"OneD": -9_237_000.0, "FourD": 1_293_000.0}
+    assert "NameOfTheCompany" not in facts          # non-numeric ignored
 
 
-def test_extract_financials_maps_fields():
-    fin = extract_financials(SAMPLE_XBRL)
-    assert fin["basic_eps"] == 12.5
-    assert fin["net_profit"] == 150_000.0
-    # revenue picks the largest-magnitude context (heuristic) -> YTD here
-    assert fin["revenue"] == 2_500_000.0
+def test_financials_by_context_exposes_all_candidates():
+    by = financials_by_context(SAMPLE_XBRL)
+    assert by["OneD"]["basic_eps"] == -0.71 and by["OneD"]["net_profit"] == -9_237_000.0
+    assert by["FourD"]["basic_eps"] == 0.10
 
 
-def test_extract_financials_prefers_context_when_given():
-    fin = extract_financials(SAMPLE_XBRL, prefer_context="Q3")
-    assert fin["revenue"] == 1_000_000.0
+def test_extract_financials_raises_on_ambiguous_context():
+    # OneD vs FourD disagree -> never guess
+    with pytest.raises(AmbiguousContextError):
+        extract_financials(SAMPLE_XBRL)
 
 
-def test_extract_financials_missing_field_is_none():
-    fin = extract_financials(b'<xbrl><Foo contextRef="C">1</Foo></xbrl>')
-    assert fin["basic_eps"] is None
+def test_extract_financials_uses_explicit_context():
+    assert extract_financials(SAMPLE_XBRL, context="OneD")["basic_eps"] == -0.71
+    assert extract_financials(SAMPLE_XBRL, context="FourD")["basic_eps"] == 0.10
+
+
+def test_extract_financials_single_context_is_unambiguous():
+    fin = extract_financials(ONE_CTX_XBRL)
+    assert fin["basic_eps"] == 9.0 and fin["net_profit"] == 150_000.0
 
 
 def test_static_filings_recent_and_fetch():
@@ -65,10 +80,17 @@ def test_nse_source_inert_without_http():
 
 
 def test_nse_source_parses_injected_json():
-    rows = [{"symbol": "TCS", "toDate": "2024-06-30", "filingDate": "2024-07-11", "xbrl": "u"}]
+    # real NSE shapes: DD-Mon-YYYY dates, filingDate carries a time, xbrl is a .xml URL
+    rows = [
+        {"symbol": "TCS", "toDate": "30-Jun-2024", "filingDate": "11-Jul-2024 16:39",
+         "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/a.xml"},
+        {"symbol": "NOXBRL", "toDate": "30-Jun-2024", "filingDate": "11-Jul-2024 16:39",
+         "xbrl": "-"},   # placeholder — must be skipped
+    ]
     src = NSEFilingsSource(http=lambda url: json.dumps(rows).encode())
     got = src.recent(date(2024, 1, 1))
-    assert len(got) == 1 and got[0].symbol == "TCS" and got[0].period_end == date(2024, 6, 30)
+    assert len(got) == 1 and got[0].symbol == "TCS"
+    assert got[0].period_end == date(2024, 6, 30) and got[0].filing_date == date(2024, 7, 11)
 
 
 def test_ingestion_writes_point_in_time_record(tmp_path):
