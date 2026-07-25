@@ -91,8 +91,6 @@ def gather() -> dict:
 
 def _recommendations(state: dict) -> list[dict]:
     recs = [
-        {"pri": "high", "title": "Rotate the API secret",
-         "why": "It was shared in chat/screenshot on 2026-07-24 — regenerate it in the Kite developer console."},
         {"pri": "med", "title": "Decide a stock-universe source",
          "why": "The instruments filter yields ~9.8k cash-segment names incl. bonds/ETFs, not a clean stock list. Index constituents (e.g. NIFTY 500 by date) also fixes survivorship (G-43)."},
         {"pri": "med", "title": "Decide a point-in-time fundamentals source",
