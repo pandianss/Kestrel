@@ -9,7 +9,7 @@ from datetime import date
 
 import pytest
 
-from kestrel.data.pit import build_pit_universe
+from kestrel.data.pit import build_nse_equity_universe, build_pit_universe, nse_equity_row
 from kestrel.data.reference import StaticListSource
 from kestrel.data.snapshot import SnapshotConflictError, SnapshotStore
 
@@ -97,6 +97,27 @@ def test_pit_universe_filters_out_dev_snapshots_by_default(tmp_path):
     assert set(uni.members_asof(date(2026, 7, 25))) == {"RELIANCE", "TCS"}
     # nothing on/before the dev day, because that day was not admitted
     assert uni.members_asof(date(2026, 7, 23)) == []
+
+
+def test_nse_equity_filter_excludes_non_equity():
+    assert nse_equity_row({"exchange": "NSE", "segment": "NSE", "instrument_type": "EQ"})
+    assert not nse_equity_row({"exchange": "NSE", "segment": "NFO-OPT", "instrument_type": "CE"})
+    assert not nse_equity_row({"exchange": "BSE", "segment": "BSE", "instrument_type": "EQ"})
+    assert not nse_equity_row({"exchange": "NSE", "segment": "INDICES", "instrument_type": "EQ"})
+
+
+def test_build_nse_equity_universe_keeps_only_equity(tmp_path):
+    store = SnapshotStore(tmp_path)
+    # a realistic mixed instruments dump: one stock, one option, one index
+    csv = (
+        b"tradingsymbol,exchange,segment,instrument_type\n"
+        b"RELIANCE,NSE,NSE,EQ\n"
+        b"NIFTY24000CE,NSE,NFO-OPT,CE\n"
+        b"NIFTY 50,NSE,INDICES,EQ\n"
+    )
+    store.write("instruments", date(2026, 7, 24), csv, source="kite:/instruments")
+    uni = build_nse_equity_universe(store)
+    assert set(uni.members_asof(date(2026, 7, 24))) == {"RELIANCE"}   # option & index dropped
 
 
 def test_empty_store_pit_raises(tmp_path):

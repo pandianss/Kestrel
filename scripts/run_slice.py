@@ -19,6 +19,7 @@ Sequencing is strict end-of-day, no look-ahead:
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -26,6 +27,17 @@ if hasattr(sys.stdout, "reconfigure"):
 import pandas as pd
 
 from kestrel.data.yahoo import load_daily_ohlc
+
+_KITE_CACHE = Path("data/cache/kite")
+
+
+def _load(symbol: str) -> tuple[pd.DataFrame, str]:
+    """Prefer real Kite bars (pulled via scripts/pull_history.py) when cached;
+    fall back to the Yahoo dev loader otherwise."""
+    kite = _KITE_CACHE / f"{symbol}_day.pkl"
+    if kite.exists():
+        return pd.read_pickle(kite), "Kite (real)"
+    return load_daily_ohlc(symbol), "Yahoo (dev)"
 from kestrel.execution.book import Book
 from kestrel.execution.exits import Bar, ExitPlan, OnDataLoss, StopKind, TargetKind
 from kestrel.execution.manager import PositionManager
@@ -51,7 +63,7 @@ def _plan() -> ExitPlan:
 
 def main() -> None:
     symbol = sys.argv[1] if len(sys.argv) > 1 else "RELIANCE"
-    df = load_daily_ohlc(symbol)
+    df, source = _load(symbol)
     df = df[df.index >= "2015-01-01"]
     sma = df["close"].rolling(SMA_WINDOW).mean()
 
@@ -91,12 +103,13 @@ def main() -> None:
         pm.on_bar(symbol, Bar(dates[-1].date(), float(last["open"]), float(last["high"]),
                               float(last["close"]), float(last["close"])), feed_ok=False)
 
-    _report(symbol, book, df)
+    _report(symbol, book, df, source)
 
 
-def _report(symbol: str, book: Book, df: pd.DataFrame) -> None:
+def _report(symbol: str, book: Book, df: pd.DataFrame, source: str) -> None:
     trades = book.trades
-    print(f"\nVertical slice — {symbol}, {df.index[0].date()} → {df.index[-1].date()}")
+    print(f"\nVertical slice — {symbol}  [{source}], "
+          f"{df.index[0].date()} → {df.index[-1].date()}")
     print(f"Entry: close > {SMA_WINDOW}d SMA (placeholder).  "
           f"Exit: 15% trailing stop / 30% target / 180d time.\n")
     if not trades:
