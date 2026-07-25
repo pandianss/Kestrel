@@ -2,6 +2,10 @@
 
 **Last updated:** 2026-07-23
 
+> This document describes the **designed** target system. For what is **actually
+> built** today — the deterministic data/research/execution spine, with an
+> as-built diagram — see [doc 14](14-as-built-architecture.md).
+
 ---
 
 ## 1. The two-plane model
