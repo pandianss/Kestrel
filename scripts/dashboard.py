@@ -85,6 +85,13 @@ def gather() -> dict:
     state["history"] = hist
     state["findings"] = findings
 
+    # fundamentals coverage
+    try:
+        from kestrel.data.fundamentals_store import FundamentalsStore
+        state["fundamentals"] = FundamentalsStore("data/fundamentals").symbols()
+    except Exception:  # noqa: BLE001
+        state["fundamentals"] = []
+
     state["recommendations"] = _recommendations(state)
     return state
 
@@ -170,6 +177,10 @@ def _data_section(state: dict) -> str:
         rows.append(_kv("Universe snapshots", '<span class="warn-t">none — run snapshot_reference.py</span>'))
     for h in state["history"]:
         rows.append(_kv(f'History · {h["symbol"]}', f'{h["bars"]:,} bars, {h["first"]} → {h["last"]}'))
+    funda = state.get("fundamentals", [])
+    if funda:
+        shown = ", ".join(funda[:8]) + (" …" if len(funda) > 8 else "")
+        rows.append(_kv("Fundamentals (filed)", f'{len(funda)} symbol(s): {html.escape(shown)}'))
     return f'<table class="kv">{"".join(rows)}</table>'
 
 
