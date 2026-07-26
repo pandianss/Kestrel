@@ -50,15 +50,24 @@ def _from_json(line: str) -> FundamentalRecord:
 class FundamentalsStore:
     def __init__(self, root: str | Path = "data/fundamentals"):
         self.root = Path(root)
+        # Per-symbol in-memory cache. A factor backtest calls asof() for every
+        # (date, symbol) cell — tens of thousands of times — so re-reading the
+        # file per call would be O(N·M) disk reads. Lazy-load once per symbol and
+        # keep the cache fresh on add(). Per-instance; single-process by design.
+        self._cache: dict[str, list[FundamentalRecord]] = {}
 
     def _path(self, symbol: str) -> Path:
         return self.root / f"{symbol}.jsonl"
 
     def _load(self, symbol: str) -> list[FundamentalRecord]:
+        cached = self._cache.get(symbol)
+        if cached is not None:
+            return cached
         p = self._path(symbol)
-        if not p.exists():
-            return []
-        return [_from_json(ln) for ln in p.read_text().splitlines() if ln.strip()]
+        recs = ([] if not p.exists()
+                else [_from_json(ln) for ln in p.read_text().splitlines() if ln.strip()])
+        self._cache[symbol] = recs
+        return recs
 
     def add(self, record: FundamentalRecord) -> bool:
         """Append `record` unless it already exists. Returns True if written,
@@ -78,6 +87,7 @@ class FundamentalsStore:
         self.root.mkdir(parents=True, exist_ok=True)
         with self._path(record.symbol).open("a", encoding="utf-8") as f:
             f.write(_to_json(record) + "\n")
+        existing.append(record)   # keep the cache fresh (same list object as cached)
         return True
 
     def has(self, symbol: str, period_end: date, publish_date: date) -> bool:

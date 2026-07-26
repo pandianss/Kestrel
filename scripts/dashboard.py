@@ -23,7 +23,6 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import pandas as pd
 
-from kestrel.data.pit import build_nse_equity_universe, build_pit_universe
 from kestrel.data.snapshot import SnapshotStore
 from kestrel.kite.tokenstore import FileTokenStore
 
@@ -62,9 +61,14 @@ def gather() -> dict:
         uni.update(first=dates[0].isoformat(), last=latest.isoformat(),
                    source=(m.source if m else "?"), size_mb=(m.size_bytes / 1e6 if m else 0))
         try:
-            eq = build_nse_equity_universe(store)
-            uni["equity"] = len(eq.members_asof(latest))
-            uni["all"] = len(build_pit_universe(store, source_prefix=None).members_asof(latest))
+            # count from the LATEST snapshot in a single parse (the 10 MB CSV),
+            # rather than building two full point-in-time universes over all dates
+            import csv as _csv
+            import io as _io
+            from kestrel.data.pit import nse_equity_row
+            rows = list(_csv.DictReader(_io.StringIO(store.read("instruments", latest).decode("utf-8"))))
+            uni["all"] = len(rows)
+            uni["equity"] = sum(1 for r in rows if nse_equity_row(r))
         except Exception:  # noqa: BLE001
             uni["equity"] = None
     state["universe"] = uni

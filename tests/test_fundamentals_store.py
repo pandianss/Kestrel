@@ -32,6 +32,17 @@ def test_has_supports_resumable_harvest(tmp_path):
     assert s.has("X", date(2024, 6, 30), r.publish_date) is False   # different period
 
 
+def test_asof_uses_in_memory_cache_not_per_call_disk_read(tmp_path):
+    s = FundamentalsStore(tmp_path)
+    s.add(record_with_lag("X", date(2024, 3, 31), 10, 100, roe=0.2))
+    assert s.asof("X", date(2024, 12, 1)).roe == 0.2   # primes the cache
+    (tmp_path / "X.jsonl").unlink()                     # remove the backing file
+    # the warm store still answers (from cache) — proves asof isn't re-reading disk
+    assert s.asof("X", date(2024, 12, 1)).roe == 0.2
+    # a fresh store (cold cache) correctly sees nothing on disk
+    assert FundamentalsStore(tmp_path).asof("X", date(2024, 12, 1)) is None
+
+
 def test_reingest_is_idempotent(tmp_path):
     s = FundamentalsStore(tmp_path)
     r = record_with_lag("X", date(2024, 3, 31), 10, 100)
