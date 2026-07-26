@@ -46,7 +46,7 @@ D1 = date(2024, 1, 2)
 
 def test_stop_intrabar_fills_at_stop():
     # entry 100, stop 90. Bar dips to 88 but opens at 95 -> filled at the stop.
-    sig = evaluate_exit(stop=90, target=None, entry_date=D0, plan=_plan(),
+    sig = evaluate_exit(stop=90, target=None, bars_held=1, plan=_plan(),
                         bar=Bar(D1, open=95, high=97, low=88, close=94))
     assert sig.reason is ExitReason.STOP and sig.price == 90
 
@@ -54,14 +54,14 @@ def test_stop_intrabar_fills_at_stop():
 def test_stop_gap_through_fills_at_open_not_stop():
     # Gap down: opens at 85, below the 90 stop. You cannot exit at 90 you jumped
     # past — fill at the worse open.
-    sig = evaluate_exit(stop=90, target=None, entry_date=D0, plan=_plan(),
+    sig = evaluate_exit(stop=90, target=None, bars_held=1, plan=_plan(),
                         bar=Bar(D1, open=85, high=86, low=83, close=84))
     assert sig.reason is ExitReason.STOP and sig.price == 85
 
 
 def test_target_fills_at_target_not_favourable_gap():
     # Gap up through a 110 target; we do NOT bank the 115 open.
-    sig = evaluate_exit(stop=90, target=110, entry_date=D0, plan=_plan(target=0.10, tkind=TargetKind.FIXED),
+    sig = evaluate_exit(stop=90, target=110, bars_held=1, plan=_plan(target=0.10, tkind=TargetKind.FIXED),
                         bar=Bar(D1, open=115, high=118, low=114, close=116))
     assert sig.reason is ExitReason.TARGET and sig.price == 110
 
@@ -69,32 +69,35 @@ def test_target_fills_at_target_not_favourable_gap():
 def test_stop_wins_intrabar_tie():
     # Bar spans BOTH stop (90) and target (110). OHLC can't say which first ->
     # assume the stop (pessimistic).
-    sig = evaluate_exit(stop=90, target=110, entry_date=D0, plan=_plan(target=0.10, tkind=TargetKind.FIXED),
+    sig = evaluate_exit(stop=90, target=110, bars_held=1, plan=_plan(target=0.10, tkind=TargetKind.FIXED),
                         bar=Bar(D1, open=100, high=112, low=88, close=105))
     assert sig.reason is ExitReason.STOP
 
 
 def test_max_holding_exits_at_close():
     plan = _plan(max_hold=5)
-    bar = Bar(date(2024, 1, 8), open=101, high=103, low=99, close=102)  # 7 days later
-    sig = evaluate_exit(stop=90, target=None, entry_date=D0, plan=plan, bar=bar)
+    bar = Bar(date(2024, 1, 8), open=101, high=103, low=99, close=102)
+    # not yet at the bar limit -> holds
+    assert evaluate_exit(stop=90, target=None, bars_held=4, plan=plan, bar=bar) is None
+    # 5th trading bar held -> exit (bars, not calendar days — G-45)
+    sig = evaluate_exit(stop=90, target=None, bars_held=5, plan=plan, bar=bar)
     assert sig.reason is ExitReason.MAX_HOLDING and sig.price == 102
 
 
 def test_no_exit_when_nothing_triggers():
-    sig = evaluate_exit(stop=90, target=110, entry_date=D0, plan=_plan(target=0.10, tkind=TargetKind.FIXED),
+    sig = evaluate_exit(stop=90, target=110, bars_held=1, plan=_plan(target=0.10, tkind=TargetKind.FIXED),
                         bar=Bar(D1, open=100, high=105, low=96, close=101))
     assert sig is None
 
 
 def test_data_loss_flatten_exits_at_open():
-    sig = evaluate_exit(stop=90, target=None, entry_date=D0, plan=_plan(dl=OnDataLoss.FLATTEN),
+    sig = evaluate_exit(stop=90, target=None, bars_held=1, plan=_plan(dl=OnDataLoss.FLATTEN),
                         bar=Bar(D1, open=99, high=100, low=98, close=99), feed_ok=False)
     assert sig.reason is ExitReason.DATA_LOSS and sig.price == 99
 
 
 def test_data_loss_hold_does_not_exit():
-    sig = evaluate_exit(stop=90, target=None, entry_date=D0, plan=_plan(dl=OnDataLoss.HOLD),
+    sig = evaluate_exit(stop=90, target=None, bars_held=1, plan=_plan(dl=OnDataLoss.HOLD),
                         bar=Bar(D1, open=99, high=100, low=98, close=99), feed_ok=False)
     assert sig is None
 
@@ -153,9 +156,23 @@ def test_risk_based_size_ties_to_stop_distance():
 
 
 def test_risk_based_size_capped_by_cash():
-    # tiny stop distance would demand huge size; cash caps it at equity/price
+    # tiny stop distance would demand huge size; cash caps it — WITH a cost
+    # buffer so try_enter can actually fund it (G-47), so 100000/(100*1.005)=995
     n = sizing.risk_based_size(equity=100_000, price=100, stop_price=99.9, risk_fraction=0.10)
-    assert n == 1000   # 100_000 / 100
+    assert n == 995
+
+
+def test_risk_size_cash_cap_leaves_room_for_costs(tmp_path=None):
+    # G-47: a full-allocation size must be fundable once slippage+costs are added.
+    from kestrel.execution.book import Book
+    from kestrel.execution.manager import PositionManager
+    equity = 100_000
+    qty = sizing.risk_based_size(equity=equity, price=100, stop_price=99.9,
+                                 risk_fraction=0.50, cost_buffer=0.005)
+    book = Book(cash=equity)
+    pm = PositionManager(book, RiskConfig(max_position_pct=1.0), slippage_one_way=0.001)
+    res = pm.try_enter("X", qty, Bar(D0, 100, 100, 100, 100), _plan(), equity=equity)
+    assert res.accepted   # would have been rejected 'insufficient_cash' before the buffer
 
 
 def test_sizing_floors_never_rounds_up():
@@ -242,6 +259,20 @@ def test_exit_fires_even_when_halted():
     pm.trip_kill_switch()
     trade = pm.on_bar("X", Bar(D1, open=95, high=96, low=88, close=92))
     assert trade is not None    # halt blocks entries, never exits
+
+
+def test_time_exit_counts_bars_not_calendar_days():
+    # G-45: max_holding is trading BARS, so weekends/holidays don't shorten it.
+    book = Book(cash=1_000_000)
+    pm = PositionManager(book, RiskConfig(max_position_pct=1.0), slippage_one_way=0.0)
+    plan = _plan(max_hold=3)   # flat prices so only time can exit
+    pm.try_enter("X", 10, Bar(date(2024, 1, 1), 100, 100, 100, 100), plan, equity=1_000_000)
+    flat = lambda d: Bar(d, 100, 100, 100, 100)
+    assert pm.on_bar("X", flat(date(2024, 1, 2))) is None     # bar 1
+    # 8 calendar days later but only bar 2 — old calendar-day code would have exited
+    assert pm.on_bar("X", flat(date(2024, 1, 10))) is None    # bar 2
+    tr = pm.on_bar("X", flat(date(2024, 1, 11)))              # bar 3 -> exit
+    assert tr is not None and tr.reason == "max_holding"
 
 
 def _run(seed_bars):

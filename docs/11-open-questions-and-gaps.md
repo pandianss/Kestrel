@@ -59,8 +59,12 @@
 | [G-44](#g-44) | 🟠 | **IN DESIGN** | Cost | **D-16 moved break-even to ₹0.48 cr**; now a per-tier cost test | Per agent tier |
 | [G-42](#g-42) | 🟠 | **IN DESIGN** | Research | Not backtestable, but **D-17 gives a control** (beat the factor?) | Ongoing forward test |
 | [G-43](#g-43) | 🟠 | OPEN | Research | **Point-in-time reference data not captured** — unrecoverable | **Phase 0** |
+| [G-45](#g-45) | 🟢 | ✅ FIXED | Execution | Time exits used calendar days — now trading bars | done 2026-07-26 |
+| [G-47](#g-47) | 🟢 | ✅ FIXED | Risk | Cash sizer ignored costs/slippage — now buffered | done 2026-07-26 |
+| [G-46](#g-46) | 🟢 | ✅ FIXED | Data | Same-ex-date dividends compounded — now summed | done 2026-07-26 |
+| [G-48](#g-48) | 🟢 | ✅ FIXED | Research | Engine silently dropped NaN-return holdings — now filled + counted | done 2026-07-26 |
 
-**Where the register stands:** 44 gaps — **4 blockers, 26 significant, 12 to firm up**; by status **13 OPEN, 21 IN DESIGN, 5 CLOSED/BUILT, 4 ACCEPTED**.
+**Where the register stands:** 48 gaps — **4 blockers, 28 significant, 13 to firm up**; by status **13 OPEN, 21 IN DESIGN, 10 CLOSED/BUILT/FIXED, 4 ACCEPTED**. *(2026-07-26: an external code audit found four real defects — G-45/46/47/48 — all now fixed with regression tests; verified against the code before changing anything.)*
 
 **The regulatory blocker is gone.** G-02 dropped 🔴 → 🟠 once algo-provider status was resolved — **no remaining regulatory question threatens the architecture.** Of the blockers, the two biggest execution ones are now **built and tested** (2026-07-24): **G-28** (the deterministic exit path) is 🟡, and **G-29** (CNC delivery margin) is 🟢. That leaves **G-03, G-09, G-36 and the G-18 sign-off** on the engineering side, and exactly one product question: **G-01, the specific factor** (the frame is set — D-17 — and two factors are implemented and comparable).
 
@@ -373,6 +377,21 @@ The fill simulator matches orders against the live tick stream, so an erroneous 
 
 *Open:* $\kappa_{\text{open}}$, $N_{\text{warm}}$, $k_1$, $k_2$, and $\theta_{\text{floor}}$ are all asserted. Fit against replayed opening sessions **including known gap days**, and note the asymmetry — at the open, over-rejecting is worse than under-rejecting, because a suppressed genuine gap blinds every downstream agent to the day's most informative move.
 
+<a id="g-46"></a>
+
+### G-46 🟡 — Multi-dividend events on the same ex-date compound incorrectly *(new)*
+**Status:** ✅ **FIXED (2026-07-26)** · was Phase 2
+
+✅ **Fixed** — `adjust_for_dividends` now sums `amount_per_share` per `ex_date` *before* computing the factor, so two payouts on one ex-date subtract linearly (`(ref−(d1+d2))/ref`) instead of compounding. Regression test `test_same_exdate_dividends_sum_linearly` pins it (₹5+₹2 on ₹100 → 0.93, not 0.9310). Found by an external audit; verified against the code before fixing.
+
+In `kestrel/data/corporate_actions.py`, `adjust_for_dividends` applies the yield factor for multiple dividends on the same ex-date sequentially. Because it reads the unadjusted `ref_close` from `df` on each iteration, it compounds the yields multiplicatively rather than subtracting the total dividend linearly.
+
+*Why it matters:* This mathematical bug introduces artificial price distortions in the adjusted total-return price series. For a low-priced stock with multiple dividends on the same day, this error accumulates and corrupts historical indicators and backtest signals.
+
+*Evidence:* In `adjust_for_dividends`, the multiplier applied is `((ref_close - div1) / ref_close) * ((ref_close - div2) / ref_close)`. For `ref_close = 50` and dividends of `5` and `2`, the correct factor is `(50 - 7)/50 = 0.86`, but the code computes `0.90 * 0.96 = 0.864` (a +0.46% mismatch).
+
+*Proposed direction:* Group dividend events by `ex_date` and sum their `amount_per_share` values before calculating the adjustment factor.
+
 ---
 
 ## D. Execution & risk
@@ -524,6 +543,45 @@ Zerodha force-closes intraday positions at **3:25 PM (equity) / 3:26 PM (F&O)** 
 *Direction (adopted):* doc 07 §4.4 — the Position Manager sets `square_off_at` on every MIS entry with a configurable margin before the broker's cut-off, so we close our own positions; anything the broker would have closed is charged in the ledger.
 
 *⚠️ Timings live in config, not code.* They changed in December 2025 (from 3:20/3:25) and will change again.
+
+<a id="g-45"></a>
+
+### G-45 🟠 — Time exits use calendar days instead of trading bars *(new)*
+**Status:** ✅ **FIXED (2026-07-26)** · was Phase 3
+
+✅ **Fixed** — `Position.bars_held` now counts trading bars, incremented in `PositionManager.on_bar`, and `evaluate_exit` takes `bars_held` (not `entry_date`) for the time exit. Weekends/holidays no longer shorten a hold; `max_holding_days` is now a count of trading bars. Regression test `test_time_exit_counts_bars_not_calendar_days` (a bar 8 calendar days later is still just one bar). This is exactly the proposed direction, verified against the code first.
+
+The original defect, for the record:
+
+*Why it matters:* This directly contradicts the documentation and code comments which state that holding age is counted in trading bars. A position held over weekends or market holidays accumulates calendar days but no trading bars, causing positions to exit prematurely (e.g. 5 calendar days represents only 3 trading bars if held over a weekend). This cuts trades short and distorts backtest metrics.
+
+*Evidence:* In `kestrel/execution/exits.py`, line 144 checks: `held = (bar.d - entry_date).days`.
+
+*Proposed direction:* Add a `bars_held` counter to the `Position` class in `book.py`, increment it on every bar evaluated in `PositionManager.on_bar()`, and pass this counter to `evaluate_exit` instead of using the raw date difference.
+
+<a id="g-47"></a>
+
+### G-47 🟠 — Cash sizer ignores costs and slippage, causing risk rejects *(new)*
+**Status:** ✅ **FIXED (2026-07-26)** · was Phase 3
+
+✅ **Fixed** — `risk_based_size` now caps by `equity / (price · (1 + cost_buffer))` (default 0.5%), reserving headroom for slippage + entry costs so a full-allocation trade sizes down instead of being rejected `insufficient_cash`. Regression test `test_risk_size_cash_cap_leaves_room_for_costs` opens a 50%-risk position that the pre-fix cap would have bounced. Low real-world incidence (the cash cap only binds at near-full allocation), but a correct fix.
+
+The original defect, for the record:
+
+*Why it matters:* In a concentrated strategy or a single-position vertical slice where the sizer allocates all available cash, the position manager will calculate `notional + entry_cost` (which includes slippage and taxes/stamp duty). This will exceed the available cash, causing the risk engine to reject the entry with `insufficient_cash`. Valid trades are rejected instead of sized down to accommodate costs.
+
+*Evidence:* In `kestrel/execution/sizing.py`, line 66 sizes cash as `shares_by_cash = equity / price`. In `kestrel/execution/manager.py`, line 81-91 checks the cost of entry `notional + entry_cost` against `cash * cfg.cash_safety_factor`, which rejects the order if it exceeds cash.
+
+*Proposed direction:* Modify the `Sizer` protocol or sizer calls to discount available cash by the expected slippage and cost fraction when computing `shares_by_cash`.
+
+<a id="g-48"></a>
+
+### G-48 🟢 — Engine silently dropped NaN-return holdings (survivorship in the engine) *(new)*
+**Status:** ✅ **FIXED (2026-07-26)**
+
+The backtest engine realised a held book's month with `ret.loc[dt, list(prev)].mean()`. Pandas' `.mean()` skips `NaN`, so a held name that delisted/suspended/lost data that month was **silently dropped**, shifting its weight to the survivors — a survivorship bias baked into the engine itself, inflating CAGR. Found by the same external audit; the most consequential of the four.
+
+✅ **Fixed, but not as the audit proposed.** The audit suggested filling every `NaN` with `-1.0` (total loss). That over-reaches — a `NaN` is as often a temporary suspension or a data gap as a bankruptcy, and a blanket `-1.0` would understate returns just as wrongly as dropping overstated them. Instead: `run_backtest` fills a missing held return with a configurable `missing_return` (default `0.0`, a neutral "flat that month"), **divides by the full held count** (nothing vanishes), and **counts** the fills in `BacktestResult.missing_marks` so it is never silent. A delisting-aware run passes `missing_return=-1.0` deliberately. Regression test `test_missing_held_return_is_filled_and_counted_not_dropped` proves the fill changes the realised return (i.e. is used, not dropped). This mostly won't fire yet — the current Yahoo runs are on survivor data with no mid-hold NaNs — but it matters the moment the real point-in-time universe (G-43) brings delistings.
 
 ---
 
@@ -918,8 +976,10 @@ SEBI Feb 2025 §V splits algos into **white box** (logic disclosed and replicabl
 
 <a id="g-38"></a>
 
-### G-38 🟠 — SPAN Grid Scenario Calculation Latency *(new)*
-**Status:** OPEN · **Resolve by:** Phase 3
+### G-38 🟠 — SPAN margin: a caching & rate-budget problem, not compute *(new)*
+**Status:** OPEN · **Resolve by:** Phase 3 (F&O only — deferred with D-16)
+
+**Retitled (2026-07-26, per external audit).** Since NSE SPAN cannot be computed locally (G-29), pre-trade margin must come from Kite's margin API — so this is **network latency + API rate-budget**, not local compute. The check must cache the day's per-instrument margins and stay inside the request budget, not race a scenario grid. Only relevant if/when the strategy trades F&O; the current CNC-delivery design (D-16) does not, so this is deferred.
 
 Evaluating 16 SPAN stress scenarios for complex multi-leg options baskets in real-time pre-trade risk checks may introduce microsecond-to-millisecond processing latency into the Execution Gateway.
 
@@ -954,6 +1014,9 @@ Reframed direction:
 
 ## Change log
 
+- **2026-07-26 (thirteenth pass)** — **codebase audit & bug discovery**.
+  - **Added:** G-45 (time exits calendar-day bug, 🟠), G-46 (multi-dividend compounding bug, 🟡), G-47 (cash sizer cost omission bug, 🟠).
+  - **Audit findings:** Detailed code defects identified in exits, corporate actions, and sizing; verified 2026 SEBI/Kite Connect rate limits and compliance facts (static IP, 2FA, 10 OPS).
 - **2026-07-22** — external review pass.
   - **Added:** G-28 (no exit path, 🔴), G-29 (no margin model, 🔴), G-30 (MIS square-off), G-31 (unbounded Redis streams), G-32 (replay harness), G-33 (bad-tick filter), G-34 (coverage framing), G-35 (no owners/dates).
   - **Closed:** G-05 (extra API keys not viable), G-16 (bandwidth a non-issue), G-32, G-34.

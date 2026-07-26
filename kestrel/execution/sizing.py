@@ -47,7 +47,8 @@ def fixed_fractional_size(*, equity: float, price: float, fraction: float) -> in
 
 
 def risk_based_size(
-    *, equity: float, price: float, stop_price: float, risk_fraction: float
+    *, equity: float, price: float, stop_price: float, risk_fraction: float,
+    cost_buffer: float = 0.005,
 ) -> int:
     """Risk a fixed `risk_fraction` of equity on the distance to the stop.
 
@@ -55,6 +56,13 @@ def risk_based_size(
     makes the per-trade loss limit real: if the stop is hit, the loss is ~the
     budgeted fraction regardless of the stop's width. A tighter stop buys more
     shares, a wider stop fewer — risk, not notional, is held constant.
+
+    `cost_buffer` (G-47) reserves headroom on the cash cap for slippage + entry
+    costs. `try_enter` pays `qty*price*(1+slippage)` plus statutory costs, so a
+    naive `equity/price` cap over-sizes and the risk engine rejects the trade as
+    `insufficient_cash` instead of it sizing down. Buffering the cap keeps a
+    full-allocation trade fundable. Default 0.5% comfortably covers ~0.1%
+    slippage + ~0.2% delivery costs; set it to match the execution config.
     """
     if not (0.0 < risk_fraction < 1.0):
         raise ValueError("risk_fraction must be in (0, 1)")
@@ -62,8 +70,8 @@ def risk_based_size(
     if per_share_risk <= 0:
         return 0    # stop not below entry — the risk engine will reject anyway
     shares_by_risk = (risk_fraction * equity) / per_share_risk
-    # Never let risk sizing exceed what cash can actually buy.
-    shares_by_cash = equity / price
+    # Never let risk sizing exceed what cash can actually buy, incl. costs.
+    shares_by_cash = equity / (price * (1.0 + cost_buffer))
     return int(math.floor(min(shares_by_risk, shares_by_cash)))
 
 

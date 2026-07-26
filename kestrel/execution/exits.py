@@ -113,7 +113,7 @@ def evaluate_exit(
     *,
     stop: float,
     target: float | None,
-    entry_date: date,
+    bars_held: int,
     plan: ExitPlan,
     bar: Bar,
     feed_ok: bool = True,
@@ -139,10 +139,10 @@ def evaluate_exit(
     if target is not None and bar.high >= target:
         return ExitSignal(ExitReason.TARGET, target)   # never credit a gap-up open
 
-    # Time exit: holding age is counted in bars elapsed since entry.
-    if plan.max_holding_days is not None:
-        held = (bar.d - entry_date).days
-        if held >= plan.max_holding_days:
-            return ExitSignal(ExitReason.MAX_HOLDING, bar.close)
+    # Time exit: counted in TRADING BARS held, not calendar days (G-45), so
+    # weekends/holidays never shorten a hold. `max_holding_days` is therefore a
+    # count of trading bars (≈ trading days for a daily series).
+    if plan.max_holding_days is not None and bars_held >= plan.max_holding_days:
+        return ExitSignal(ExitReason.MAX_HOLDING, bar.close)
 
     return None

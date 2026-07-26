@@ -118,10 +118,11 @@ class PositionManager:
         if pos is None:
             return None
 
+        pos.bars_held += 1   # one more trading bar held (G-45: bars, not calendar days)
         signal = evaluate_exit(
             stop=pos.stop,
             target=pos.target,
-            entry_date=pos.entry_date,
+            bars_held=pos.bars_held,
             plan=pos.plan,
             bar=bar,
             feed_ok=feed_ok,

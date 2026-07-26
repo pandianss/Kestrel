@@ -41,6 +41,29 @@ def test_determinism_same_inputs_identical_outputs():
     pd.testing.assert_frame_equal(a, b)
 
 
+def test_missing_held_return_is_filled_and_counted_not_dropped():
+    """G-48: a held name that goes NaN (delisted/suspended) must not silently
+    drop out of the mean and shift weight to survivors. It is filled with
+    `missing_return` and counted."""
+    idx = pd.date_range("2020-01-31", periods=4, freq="ME")
+    px = pd.DataFrame({
+        "A": [100.0, 110.0, 121.0, 133.1],       # steady riser
+        "B": [100.0, 90.0, 81.0, float("nan")],   # delists in the final month
+        "C": [100.0, 105.0, 110.0, 115.0],
+    }, index=idx)
+    scores = pd.DataFrame(1.0, index=idx, columns=px.columns)
+    hold_ab = lambda row, tradeable: {s for s in ("A", "B") if s in tradeable}
+
+    res0 = run_backtest(px, scores, StaticUniverse(list(px.columns)), hold_ab,
+                        min_cross_section=1, missing_return=0.0)
+    resL = run_backtest(px, scores, StaticUniverse(list(px.columns)), hold_ab,
+                        min_cross_section=1, missing_return=-1.0)
+
+    assert res0.missing_marks >= 1 and resL.missing_marks == res0.missing_marks
+    # the fill value actually changes the realised return — proof it isn't dropped
+    assert res0.net.iloc[-1] != resL.net.iloc[-1]
+
+
 def test_no_lookahead_first_held_month_has_no_return():
     """You cannot earn a return before you have held anything. The first month
     a book exists, its realised gross return must be NaN (the book was only

@@ -77,16 +77,25 @@ def adjust_for_dividends(
     # cumulative multiplier per bar, starting at 1.0
     factor = pd.Series(1.0, index=df.index)
 
-    for ev in sorted(events, key=lambda e: e.ex_date):
-        ex = pd.Timestamp(ev.ex_date)
+    # Sum dividends sharing an ex-date FIRST (G-46): two payouts on one ex-date
+    # subtract linearly (interim + special = one price drop), not multiplicatively
+    # — (ref-d1)/ref * (ref-d2)/ref would over-discount.
+    from collections import defaultdict
+
+    per_ex: dict = defaultdict(float)
+    for ev in events:
+        per_ex[ev.ex_date] += ev.amount_per_share
+
+    for ex_date in sorted(per_ex):
+        ex = pd.Timestamp(ex_date)
         before = df.index[df.index < ex]
         if len(before) == 0:
             continue   # ex-date before our history — no reference close
         ref_close = float(df.loc[before[-1], "close"])
         if ref_close <= 0:
             continue
-        # clamp: a dividend cannot exceed the price (bad data guard)
-        f = max((ref_close - ev.amount_per_share) / ref_close, 1e-6)
+        # clamp: total dividend cannot exceed the price (bad data guard)
+        f = max((ref_close - per_ex[ex_date]) / ref_close, 1e-6)
         factor.loc[before] *= f   # all bars strictly before the ex-date
 
     for c in price_cols:

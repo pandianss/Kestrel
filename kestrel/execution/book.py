@@ -24,6 +24,7 @@ class Position:
     stop: float                  # live stop (trailing ratchets this up)
     target: float | None
     entry_cost: float            # cash cost charged at entry (for round-trip accounting)
+    bars_held: int = 0           # trading bars evaluated since entry (G-45, not calendar days)
 
     def notional(self, price: float) -> float:
         return self.qty * price

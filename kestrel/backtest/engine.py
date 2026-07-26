@@ -36,6 +36,7 @@ class BacktestResult:
     monthly: pd.DataFrame          # columns: gross, net, turnover, n_holdings
     survivorship_biased: bool      # propagated from the universe provider
     min_cross_section: int         # smallest tradeable set seen (diagnostic)
+    missing_marks: int = 0         # held-name months with no return (G-48) — see note
 
     @property
     def gross(self) -> pd.Series:
@@ -55,6 +56,7 @@ def run_backtest(
     capital: float = 1_000_000.0,
     slippage_one_way: float = 0.0010,
     min_cross_section: int = 20,
+    missing_return: float = 0.0,
 ) -> BacktestResult:
     """Run the monthly rebalance loop.
 
@@ -63,10 +65,22 @@ def run_backtest(
     `universe`— point-in-time membership.
     `holdings_fn` — chooses target holdings from (scores_row, tradeable list).
     `capital` — book size, used only to amortise the flat per-scrip DP charge.
+    `missing_return` — the return assigned to a held name that has **no price
+      this month** (delisted, suspended, or a data gap). Pandas' `.mean()` would
+      silently DROP such a name and shift its weight to the survivors — a
+      survivorship bias baked into the engine (G-48). Instead each missing mark
+      is filled with this value and counted (`BacktestResult.missing_marks`), so
+      the book is always divided by its full held count and nothing vanishes
+      silently. Default 0.0 (a neutral 'flat that month' assumption); pass -1.0
+      to model a vanished holding as a total loss (conservative, for a
+      delisting-aware run). It does NOT default to -1.0 because a NaN is as
+      often a temporary suspension or data gap as a bankruptcy — that call is
+      the caller's, and it is now explicit rather than hidden.
     """
     ret = prices.pct_change()
     rows: list[tuple] = []
     prev: set[str] = set()
+    missing_marks = 0
     smallest = 10**9
 
     for dt in prices.index:
@@ -82,7 +96,11 @@ def run_backtest(
 
         # (2) realise last month's book this month
         if prev:
-            gross = float(ret.loc[dt, list(prev)].mean())
+            held = ret.loc[dt, list(prev)]
+            missing_marks += int(held.isna().sum())
+            # fill missing marks explicitly, then divide by the FULL held count —
+            # never let a vanished holding silently drop out (G-48).
+            gross = float(held.fillna(missing_return).mean())
             # (3) cost on turnover between prev and new book
             new = holdings_fn(scores.loc[dt], tradeable)
             n = max(len(new), 1)
@@ -106,4 +124,5 @@ def run_backtest(
         monthly=monthly,
         survivorship_biased=universe.is_survivorship_biased,
         min_cross_section=smallest,
+        missing_marks=missing_marks,
     )

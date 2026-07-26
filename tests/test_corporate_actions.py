@@ -65,6 +65,16 @@ def test_multiple_dividends_compound():
     assert adj.loc["2024-01-04", "close"] == pytest.approx(90.0)  # unchanged
 
 
+def test_same_exdate_dividends_sum_linearly():
+    # G-46: interim + special on ONE ex-date subtract linearly, not compound.
+    df = _series()  # close 100 before the ex-date
+    evs = [DividendEvent("X", date(2024, 1, 3), 5.0),
+           DividendEvent("X", date(2024, 1, 3), 2.0)]   # total 7 on the same ex-date
+    adj = adjust_for_dividends(df, evs)
+    # correct factor is (100-7)/100 = 0.93 -> 93.0, NOT 0.95*0.98*100 = 93.10
+    assert adj.loc["2024-01-02", "close"] == pytest.approx(93.0)
+
+
 def test_dividend_exceeding_price_is_clamped():
     df = _series()
     adj = adjust_for_dividends(df, [DividendEvent("X", date(2024, 1, 3), 500.0)])
