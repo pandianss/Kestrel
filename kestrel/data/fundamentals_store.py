@@ -104,6 +104,17 @@ class FundamentalsStore:
             return None
         return max(public, key=lambda r: r.publish_date)
 
+    def has_period(self, symbol: str, period_end: date) -> bool:
+        """True if any record for this (symbol, period_end) exists — lets the
+        history backfill skip a quarter it already has without re-fetching both
+        the standalone and consolidated filings for it."""
+        return any(e.period_end == period_end for e in self._load(symbol))
+
+    def records(self, symbol: str) -> list[FundamentalRecord]:
+        """All stored records for `symbol` (any period), for trend analysis.
+        Returns a copy so callers can't mutate the cache."""
+        return list(self._load(symbol))
+
     def symbols(self) -> list[str]:
         if not self.root.exists():
             return []

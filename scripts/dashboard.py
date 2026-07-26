@@ -96,6 +96,15 @@ def gather() -> dict:
     except Exception:  # noqa: BLE001
         state["fundamentals"] = []
 
+    # fundamental trends (improving / declining) — needs >=2 quarters per name
+    try:
+        from kestrel.analysis.fundamentals_trend import compare
+        from kestrel.data.fundamentals_store import FundamentalsStore as _FS
+        state["trends"] = [t for t in compare(_FS("data/fundamentals"))
+                           if t.direction != "insufficient"]
+    except Exception:  # noqa: BLE001
+        state["trends"] = []
+
     # background fundamentals worker status
     import json as _json
     wstatus = Path("logs/fundamentals_worker_status.json")
@@ -219,6 +228,25 @@ def _findings_section(state: dict) -> str:
     return f'<div class="cards">{"".join(cards)}</div>{caveat}'
 
 
+def _trends_section(state: dict) -> str:
+    trends = state.get("trends", [])
+    if not trends:
+        return ('<p class="muted">No multi-quarter fundamentals yet — backfill with '
+                '<code>scripts/backfill_fundamentals.py SYMBOL …</code> to compare companies over time.</p>')
+    up = [t for t in trends if t.direction == "improving"]
+    dn = [t for t in trends if t.direction == "declining"]
+
+    def _row(t, mark):
+        qoq = "—" if t.qoq_growth is None else f"{t.qoq_growth:+.0%}"
+        return (f'<tr><td class="v">{mark} {html.escape(t.symbol)}</td>'
+                f'<td class="k">{t.n}q · EPS {t.latest_eps:.2f} · QoQ {qoq}</td></tr>')
+
+    body = "".join(_row(t, "▲") for t in up[:8]) + "".join(_row(t, "▼") for t in dn[:8])
+    return (f'<table class="kv small">{body}</table>'
+            f'<p class="muted">{len(up)} improving · {len(dn)} declining · '
+            f'{len(trends)} with ≥2 quarters. Ranked by EPS slope; consolidated where available.</p>')
+
+
 def _recs_section(state: dict) -> str:
     order = {"high": 0, "med": 1, "low": 2}
     items = sorted(state["recommendations"], key=lambda r: order.get(r["pri"], 9))
@@ -289,6 +317,9 @@ footer {{ margin-top:36px; color:var(--muted); font-size:12px; border-top:1px so
 
 <h2>Findings — vertical slice on real data</h2>
 {_findings_section(state)}
+
+<h2>Fundamental trends — improving vs declining</h2>
+<div class="panel">{_trends_section(state)}</div>
 
 <h2>Recommendations &amp; pending decisions</h2>
 <div class="panel">{_recs_section(state)}</div>

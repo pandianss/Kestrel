@@ -71,6 +71,21 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
 
 
+def report_basis(xbrl_bytes: bytes) -> str:
+    """'consolidated' / 'standalone' / 'unknown' from a results XBRL. A company
+    files both; a trend series must stick to one basis (consolidated is the
+    headline). Read from the NatureOfReportStandaloneConsolidated text fact."""
+    root = ET.parse(io.BytesIO(xbrl_bytes)).getroot()
+    for el in root.iter():
+        if _local(el.tag) == "NatureOfReportStandaloneConsolidated" and el.text:
+            t = el.text.strip().lower()
+            if "consolidat" in t:
+                return "consolidated"
+            if "standalone" in t:
+                return "standalone"
+    return "unknown"
+
+
 def parse_xbrl_facts(xbrl_bytes: bytes) -> dict[str, dict[str, float]]:
     """Extract numeric facts from an XBRL instance as
     {concept_local_name: {context_ref: value}}. Non-numeric and context-less
@@ -204,8 +219,9 @@ class StaticFilings:
     def __init__(self, filings: list[tuple[FiledResult, bytes]]):
         self._items = list(filings)
 
-    def recent(self, since: date) -> list[FiledResult]:
-        return [f for f, _ in self._items if f.filing_date >= since]
+    def recent(self, since: date, *, symbol: str | None = None) -> list[FiledResult]:
+        return [f for f, _ in self._items
+                if f.filing_date >= since and (symbol is None or f.symbol == symbol)]
 
     def fetch_xbrl(self, filed: FiledResult) -> bytes:
         for f, x in self._items:
@@ -226,7 +242,10 @@ class NSEFilingsSource:
     def __init__(self, http: Callable[[str], bytes] | None = None):
         self._http = http
 
-    def recent(self, since: date) -> list[FiledResult]:
+    def recent(self, since: date, *, symbol: str | None = None) -> list[FiledResult]:
+        """Results filed on/after `since`. With `symbol`, returns that one
+        company's full history (the per-symbol endpoint) rather than the
+        current-season list across all companies."""
         if self._http is None:
             raise RuntimeError(
                 "NSEFilingsSource needs a live HTTP getter with NSE session "
@@ -234,8 +253,10 @@ class NSEFilingsSource:
                 "on-host, or use StaticFilings for development."
             )
         import json
+        import urllib.parse
 
-        rows = json.loads(self._http(_NSE_RESULTS_URL))
+        url = _NSE_RESULTS_URL + (f"&symbol={urllib.parse.quote(symbol)}" if symbol else "")
+        rows = json.loads(self._http(url))
         if isinstance(rows, dict):
             rows = rows.get("data", [])
         out: list[FiledResult] = []
