@@ -63,6 +63,7 @@
 | [G-47](#g-47) | 🟢 | ✅ FIXED | Risk | Cash sizer ignored costs/slippage — now buffered | done 2026-07-26 |
 | [G-46](#g-46) | 🟢 | ✅ FIXED | Data | Same-ex-date dividends compounded — now summed | done 2026-07-26 |
 | [G-48](#g-48) | 🟢 | ✅ FIXED | Research | Engine silently dropped NaN-return holdings — now filled + counted | done 2026-07-26 |
+| [G-49](#g-49) | 🟡 | OPEN | Data | **EPS trend not bonus/split-adjusted** — distorts QoQ/YoY; use PAT | Follow-up |
 
 **Where the register stands:** 48 gaps — **4 blockers, 28 significant, 13 to firm up**; by status **13 OPEN, 21 IN DESIGN, 10 CLOSED/BUILT/FIXED, 4 ACCEPTED**. *(2026-07-26: an external code audit found four real defects — G-45/46/47/48 — all now fixed with regression tests; verified against the code before changing anything.)*
 
@@ -584,6 +585,17 @@ The backtest engine realised a held book's month with `ret.loc[dt, list(prev)].m
 ✅ **Fixed, but not as the audit proposed.** The audit suggested filling every `NaN` with `-1.0` (total loss). That over-reaches — a `NaN` is as often a temporary suspension or a data gap as a bankruptcy, and a blanket `-1.0` would understate returns just as wrongly as dropping overstated them. Instead: `run_backtest` fills a missing held return with a configurable `missing_return` (default `0.0`, a neutral "flat that month"), **divides by the full held count** (nothing vanishes), and **counts** the fills in `BacktestResult.missing_marks` so it is never silent. A delisting-aware run passes `missing_return=-1.0` deliberately. Regression test `test_missing_held_return_is_filled_and_counted_not_dropped` proves the fill changes the realised return (i.e. is used, not dropped). This mostly won't fire yet — the current Yahoo runs are on survivor data with no mid-hold NaNs — but it matters the moment the real point-in-time universe (G-43) brings delistings.
 
 ---
+
+<a id="g-49"></a>
+
+### G-49 🟡 — Fundamental EPS trend is not bonus/split-adjusted *(new)*
+**Status:** OPEN — surfaced by running the trend analysis on real data (2026-07-26)
+
+The fundamental-trend analysis (`kestrel/analysis/fundamentals_trend.py`) trends **per-share EPS**. A bonus or split changes per-share EPS mechanically without any change in the business — e.g. RELIANCE's 1:1 bonus (Oct 2024) halves per-share EPS — so QoQ/YoY across a corporate-action boundary is distorted (the fundamentals analog of the G-08 dividend problem). Running the report live made this visible: RELIANCE showed a spurious −74% QoQ that is a bonus artefact, not an earnings collapse. A secondary issue: the single quarter carried over from the first (pre-consolidated-preference) harvest can be a different **basis** (standalone) than the backfilled consolidated history, adding a one-quarter discontinuity; `has_period` skips re-fetching it.
+
+*Why it matters:* single QoQ/YoY numbers around a corporate action are untrustworthy. The multi-quarter **slope** is fairly robust (a one-off step barely moves a 26-quarter regression — RELIANCE reads "flat", not a false "declining"), which is why the report leads with slope.
+
+*Direction:* trend on **net profit (PAT)**, which is **share-count-invariant** (immune to bonus/split) — store PAT (already parsed by `extract_financials`) alongside EPS and rank on PAT growth. Fixes both the split distortion and makes basis handling less critical. Also: re-backfill the overlapping quarter with consolidated preference to remove the one-quarter basis discontinuity.
 
 ## E. Cognition & agents
 

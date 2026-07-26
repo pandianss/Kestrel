@@ -15,6 +15,13 @@ Design choices that keep it honest:
     (YoY/QoQ) is reported only when the base is positive, else left as `None`.
   * **A dead-band, so noise isn't a trend.** A slope within ±`flat_band` of the
     series' scale reads as *flat*, not a spurious improve/decline.
+
+⚠️ **Per-share EPS is not bonus/split-adjusted (G-49).** A bonus or split changes
+per-share EPS mechanically, so QoQ/YoY across that boundary is distorted (the
+fundamentals analog of the G-08 dividend problem). The multi-quarter *slope* is
+fairly robust to a one-off step; single QoQ/YoY around a corporate action are
+not. The robust fix is to trend on **net profit (PAT)**, which is share-count-
+invariant — a follow-up that needs PAT stored alongside EPS.
 """
 from __future__ import annotations
 

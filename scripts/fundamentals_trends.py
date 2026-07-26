@@ -52,7 +52,11 @@ def main() -> int:
     print(f"\n  Improving: {', '.join(up) or '—'}")
     print(f"  Declining: {', '.join(dn) or '—'}")
     print("\n  EPS is current-quarter, consolidated where available. Trend is the "
-          "least-squares slope over the stored quarters.\n")
+          "least-squares slope over the stored quarters.")
+    print("  ⚠️  Per-share EPS is NOT bonus/split-adjusted (G-49): a bonus/split "
+          "distorts QoQ/YoY across its boundary — read the multi-quarter slope, "
+          "not a single QoQ. A PAT-based (share-count-invariant) trend is the "
+          "robust fix; see docs/11 G-49.\n")
     return 0
 
 
