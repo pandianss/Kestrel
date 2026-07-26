@@ -39,47 +39,54 @@ def _arg(flag: str, default: str | None = None) -> str | None:
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
 
 
+def run_harvest(source, store, since, *, limit=0, pause=0.3,
+                sleep=time.sleep, log=print, should_stop=None) -> dict:
+    """Ingest new filings from `source` into `store`. Resumable (skips filings
+    already stored, never re-fetching them) and interruptible (`should_stop` is
+    polled each iteration). Reused by the CLI and the background worker. Returns
+    a counts dict."""
+    filings = source.recent(since)
+    if limit:
+        filings = filings[:limit]
+    log(f"  {len(filings)} filing(s) to consider")
+
+    c = dict(written=0, skipped=0, no_eps=0, ambiguous=0, errors=0)
+    for i, filed in enumerate(filings, 1):
+        if should_stop is not None and should_stop():
+            log("  stop requested — leaving the rest for the next cycle")
+            break
+        if store.has(filed.symbol, filed.period_end, filed.filing_date):
+            c["skipped"] += 1
+            continue
+        try:
+            fin = current_quarter_financials(source.fetch_xbrl(filed))
+            eps = fin.get("basic_eps")
+            if eps is None:
+                c["no_eps"] += 1
+            elif store.add(to_record(filed, eps_ttm=float(eps), book_value_per_share=0.0)):
+                c["written"] += 1
+        except AmbiguousContextError:
+            c["ambiguous"] += 1
+        except Exception:  # noqa: BLE001 — one bad filing shouldn't stop the harvest
+            c["errors"] += 1
+        sleep(pause)   # pace every network fetch; skips (has) never reach here
+        if i % 50 == 0:
+            log(f"  … {i}/{len(filings)}  (written {c['written']}, skipped {c['skipped']})")
+    return c
+
+
 def main() -> int:
     limit = int(_arg("--limit", "0") or 0)
     since = date.fromisoformat(_arg("--since", "2000-01-01"))
     pause = float(_arg("--pause", "0.3"))
 
-    getter = make_nse_getter()
-    src = NSEFilingsSource(http=getter)
+    src = NSEFilingsSource(http=make_nse_getter())
     store = FundamentalsStore(STORE_ROOT)
-
     print(f"Harvesting NSE results filings since {since}"
           + (f" (limit {limit})" if limit else "") + " ...")
-    filings = src.recent(since)
-    if limit:
-        filings = filings[:limit]
-    print(f"  {len(filings)} filing(s) to consider")
-
-    written = skipped = no_eps = ambiguous = errors = 0
-    for i, filed in enumerate(filings, 1):
-        if store.has(filed.symbol, filed.period_end, filed.filing_date):
-            skipped += 1
-            continue
-        try:
-            fin = current_quarter_financials(src.fetch_xbrl(filed))
-            eps = fin.get("basic_eps")
-            if eps is None:
-                no_eps += 1
-                continue
-            if store.add(to_record(filed, eps_ttm=float(eps), book_value_per_share=0.0)):
-                written += 1
-        except AmbiguousContextError:
-            ambiguous += 1
-        except FundamentalsConflictError:
-            errors += 1
-        except Exception:  # noqa: BLE001 — one bad filing shouldn't stop the harvest
-            errors += 1
-        time.sleep(pause)
-        if i % 50 == 0:
-            print(f"  … {i}/{len(filings)}  (written {written}, skipped {skipped})")
-
-    print(f"\nDone. written {written}, already-had {skipped}, no-EPS {no_eps}, "
-          f"ambiguous {ambiguous}, errors {errors}.")
+    c = run_harvest(src, store, since, limit=limit, pause=pause)
+    print(f"\nDone. written {c['written']}, already-had {c['skipped']}, no-EPS "
+          f"{c['no_eps']}, ambiguous {c['ambiguous']}, errors {c['errors']}.")
     print(f"Store now holds {len(store.symbols())} symbol(s).")
     return 0
 

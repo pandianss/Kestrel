@@ -60,12 +60,16 @@ $rc = $LASTEXITCODE
 Remove-Item Env:\KITE_API_SECRET -ErrorAction SilentlyContinue
 
 # Refresh the dashboard so it reflects the fresh token + today's snapshot.
-Write-Host "`n[3/3] Refreshing the local dashboard ..." -ForegroundColor Cyan
+Write-Host "`n[3/4] Refreshing the local dashboard ..." -ForegroundColor Cyan
 & $py scripts/dashboard.py
 
+# Ensure the background fundamentals worker is running (no-op if already up).
+Write-Host "`n[4/4] Ensuring the background fundamentals worker is running ..." -ForegroundColor Cyan
+& (Join-Path $here 'harvest_worker.ps1')
+
 if ($rc -eq 0) {
-    Write-Host "`nDone. Today's universe is captured; dashboard refreshed." -ForegroundColor Green
+    Write-Host "`nDone. Universe captured; dashboard refreshed; fundamentals worker up." -ForegroundColor Green
 } else {
-    Write-Host "`nSnapshot exit $rc — see the message above. Dashboard still refreshed." -ForegroundColor Yellow
+    Write-Host "`nSnapshot exit $rc — see above. Dashboard refreshed; worker ensured." -ForegroundColor Yellow
 }
 exit $rc

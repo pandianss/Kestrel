@@ -45,7 +45,8 @@ python scripts/kite_login.py             # daily: mint the access_token (operato
 python scripts/snapshot_reference.py --require-live  # daily: archive today's universe (scheduled via deploy/scheduler/)
 python scripts/pull_history.py SYMBOL    # (after login) real Kite daily bars, cached
 python scripts/snapshot_constituents.py  # daily: snapshot NIFTY 500 -> clean point-in-time stock universe
-python scripts/harvest_fundamentals.py   # ingest NSE results filings (current-quarter EPS) into the store
+python scripts/harvest_fundamentals.py   # one-shot ingest of NSE results filings (current-quarter EPS)
+python scripts/harvest_worker.py         # OR: background worker — keeps the store current, resumable (Ctrl-C safe)
 python scripts/dashboard.py              # local on-host dashboard -> dashboard.html (open in a browser)
 pytest -q                                # 133 tests: costs, determinism, factors, exits, filings, constituents, dividends
 ```

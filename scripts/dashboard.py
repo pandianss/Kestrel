@@ -96,6 +96,14 @@ def gather() -> dict:
     except Exception:  # noqa: BLE001
         state["fundamentals"] = []
 
+    # background fundamentals worker status
+    import json as _json
+    wstatus = Path("logs/fundamentals_worker_status.json")
+    try:
+        state["worker"] = _json.loads(wstatus.read_text()) if wstatus.exists() else None
+    except Exception:  # noqa: BLE001
+        state["worker"] = None
+
     state["recommendations"] = _recommendations(state)
     return state
 
@@ -176,6 +184,11 @@ def _data_section(state: dict) -> str:
     if funda:
         shown = ", ".join(funda[:8]) + (" …" if len(funda) > 8 else "")
         rows.append(_kv("Fundamentals (filed)", f'{len(funda)} symbol(s): {html.escape(shown)}'))
+    wk = state.get("worker")
+    if wk:
+        rows.append(_kv("Fundamentals worker",
+                        f'last cycle {html.escape(str(wk.get("last_cycle", "?")))} · '
+                        f'+{wk.get("written", 0)} that cycle · {wk.get("symbols", 0)} symbols'))
     return f'<table class="kv">{"".join(rows)}</table>'
 
 

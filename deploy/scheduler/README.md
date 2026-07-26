@@ -84,7 +84,34 @@ python scripts/kite_login.py                          # mint a token, then:
 python scripts/snapshot_reference.py --require-live   # archives the real master
 ```
 
+## Background fundamentals worker
+
+`scripts/harvest_worker.py` keeps the fundamentals store current while the
+system runs — polite (rate-limited), resumable (skips filings already stored),
+and safe to stop/restart (a PID lock stops a second instance). After the first
+full pass it mostly idles, picking up newly-filed results each cycle.
+
+Start it (detached, windowless; no-op if already running):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\scheduler\harvest_worker.ps1
+```
+
+`morning.ps1` already calls this, so the daily routine ensures it is up. To run
+it **whenever you log in** (always-on), register a logon task:
+
+```powershell
+$ps = (Get-Command powershell).Source
+$f  = (Resolve-Path deploy\scheduler\harvest_worker.ps1).Path
+schtasks /Create /TN "Kestrel Fundamentals Worker" /TR "$ps -NoProfile -ExecutionPolicy Bypass -File `"$f`"" /SC ONLOGON /F
+```
+
+Stop it: `Stop-Process -Id (Get-Content logs\fundamentals_worker.pid)`. It logs
+to `logs\fundamentals_worker.log` and writes `logs\fundamentals_worker_status.json`
+(surfaced on the dashboard).
+
 ## What this does NOT schedule yet
 
-Only reference-data capture. Tick ingestion, backfill, and the research jobs
-are separate and not built. When they are, they become sibling units here.
+Only reference-data capture and the fundamentals worker. Tick ingestion,
+backfill, and the research jobs are separate and not built. When they are, they
+become sibling units here.
