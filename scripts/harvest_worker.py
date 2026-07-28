@@ -33,6 +33,7 @@ from kestrel.data.fundamentals_store import FundamentalsStore
 from kestrel.data.nse_http import make_nse_getter
 from scripts.harvest_fundamentals import STORE_ROOT, run_harvest
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
 LOG = Path("logs/fundamentals_worker.log")
 STATUS = Path("logs/fundamentals_worker_status.json")
 PIDFILE = Path("logs/fundamentals_worker.pid")
@@ -63,11 +64,19 @@ def _write_status(counts: dict, symbols: int) -> None:
 
 
 def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)   # signal 0 = existence check (Windows: raises if gone)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
+    if os.name == 'nt':
+        try:
+            import subprocess
+            out = subprocess.check_output(["tasklist", "/FI", f"PID eq {pid}"], encoding="utf-8", creationflags=0x08000000)
+            return str(pid) in out
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
 
 
 def _acquire_lock() -> bool:
@@ -90,6 +99,16 @@ def _cycle(pause: float) -> None:
     c = run_harvest(src, store, date(2000, 1, 1), pause=pause,
                     sleep=_sleep, log=_log, should_stop=lambda: _stop["flag"])
     n = len(store.symbols())
+
+    # Automate corporate relations, segments, and industry extraction
+    try:
+        from kestrel.data.relations_extractor import harvest_all_relations
+        rel_res = harvest_all_relations(STORE_ROOT, REPO_ROOT / "data/relations")
+        _log(f"relations updated: +{rel_res['relations_added']} rels, "
+             f"+{rel_res['segments_added']} segs, +{rel_res['industry_added']} ind")
+    except Exception as e:
+        _log(f"relations extraction error: {e}")
+
     _log(f"cycle done: +{c['written']} new, {c['skipped']} already-had, "
          f"{c['errors']} err; store holds {n} symbol(s)")
     _write_status(c, n)
