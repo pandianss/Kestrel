@@ -26,8 +26,8 @@ if hasattr(sys.stdout, "reconfigure"):
 from kestrel.data.filings import (
     AmbiguousContextError,
     NSEFilingsSource,
-    current_quarter_financials,
-    to_record,
+    build_record_from_financials,
+    current_period_financials,
 )
 from kestrel.data.fundamentals_store import FundamentalsConflictError, FundamentalsStore
 from kestrel.data.nse_http import make_nse_getter
@@ -59,11 +59,11 @@ def run_harvest(source, store, since, *, limit=0, pause=0.3,
             c["skipped"] += 1
             continue
         try:
-            fin = current_quarter_financials(source.fetch_xbrl(filed))
+            fin = current_period_financials(source.fetch_xbrl(filed))
             eps = fin.get("basic_eps")
             if eps is None:
                 c["no_eps"] += 1
-            elif store.add(to_record(filed, eps_ttm=float(eps), book_value_per_share=0.0)):
+            elif store.add(build_record_from_financials(filed, fin)):
                 c["written"] += 1
         except AmbiguousContextError:
             c["ambiguous"] += 1

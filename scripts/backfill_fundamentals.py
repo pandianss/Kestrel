@@ -20,7 +20,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from kestrel.data.filings import current_quarter_financials, report_basis, to_record
+from kestrel.data.filings import build_record_from_financials, current_period_financials, report_basis
 from kestrel.data.fundamentals_store import FundamentalsConflictError, FundamentalsStore
 from kestrel.data.nse_http import make_nse_getter
 
@@ -41,23 +41,22 @@ def backfill_symbol(source, store, symbol, *, pause=0.3, sleep=time.sleep, log=p
         try:
             xb = source.fetch_xbrl(filed)
             fetched += 1
-            eps = current_quarter_financials(xb).get("basic_eps")
-            if eps is None:
+            fin = current_period_financials(xb)   # P&L + balance sheet
+            if fin.get("basic_eps") is None:
                 continue
             rank = _BASIS_RANK.get(report_basis(xb), 0)
             cur = best.get(filed.period_end)
             if cur is None or rank > cur[0]:
-                best[filed.period_end] = (rank, float(eps), filed.filing_date)
+                best[filed.period_end] = (rank, fin, filed.filing_date)
         except Exception:  # noqa: BLE001 — ambiguous/parse/network; skip one filing
             pass
         sleep(pause)
 
     written = 0
-    for pe, (_rank, eps, fd) in best.items():
+    for pe, (_rank, fin, fd) in best.items():
         from kestrel.data.filings import FiledResult
         try:
-            if store.add(to_record(FiledResult(symbol, pe, fd),
-                                   eps_ttm=eps, book_value_per_share=0.0)):
+            if store.add(build_record_from_financials(FiledResult(symbol, pe, fd), fin)):
                 written += 1
         except FundamentalsConflictError:
             pass

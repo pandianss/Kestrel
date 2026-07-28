@@ -115,6 +115,13 @@ DEFAULT_TAG_MAP = {
                   "BasicEarningsPerShare"],
     "equity_capital": ["PaidUpValueOfEquityShareCapital", "PaidUpEquityShareCapital"],
     "face_value": ["FaceValueOfEquityShareCapital"],
+    "other_equity": ["OtherEquity", "ReservesAndSurplus"],
+    "equity": ["Equity", "TotalEquity", "EquityAttributableToOwnersOfParent"],
+    # verified against a real INDAS balance sheet (2026-07-26): the tags are
+    # Borrowings{Noncurrent,Current}, not the reversed word order.
+    "noncurrent_borrowings": ["BorrowingsNoncurrent", "NoncurrentBorrowings", "LongTermBorrowings"],
+    "current_borrowings": ["BorrowingsCurrent", "CurrentBorrowings", "ShortTermBorrowings"],
+    "borrowings": ["Borrowings"],
 }
 
 
@@ -175,6 +182,27 @@ def current_quarter_financials(
         f"no '{CURRENT_QUARTER_CONTEXT}' context and {len(by)} candidates "
         f"{sorted(by)} — non-conforming filing, resolve explicitly."
     )
+
+
+#: Balance-sheet facts are reported at an INSTANT context (period-end), not the
+#: OneD duration context that carries the P&L. NSE's convention for the current
+#: period-end instant is "OneI".
+BALANCE_SHEET_CONTEXT = "OneI"
+
+
+def current_period_financials(
+    xbrl_bytes: bytes, *, tag_map: dict[str, list[str]] = DEFAULT_TAG_MAP
+) -> dict[str, float | None]:
+    """P&L (current quarter, OneD) merged with the balance sheet (period-end
+    instant, OneI). This is what `build_record_from_financials` needs — revenue/
+    profit/EPS come from OneD, equity/borrowings from OneI. Balance-sheet fields
+    are simply absent (None) in a pure-quarterly filing that carries no BS."""
+    by = financials_by_context(xbrl_bytes, tag_map=tag_map)
+    pl = dict(current_quarter_financials(xbrl_bytes, tag_map=tag_map))   # OneD (or lone/raise)
+    for field, val in (by.get(BALANCE_SHEET_CONTEXT) or {}).items():
+        if pl.get(field) is None and val is not None:
+            pl[field] = val
+    return pl
 
 
 def extract_financials(
@@ -285,7 +313,9 @@ class NSEFilingsSource:
 
 
 def to_record(filed: FiledResult, *, eps_ttm: float, book_value_per_share: float,
-              roe: float | None = None) -> FundamentalRecord:
+              roe: float | None = None, net_profit: float | None = None,
+              net_worth: float | None = None, total_debt: float | None = None,
+              debt_to_equity: float | None = None) -> FundamentalRecord:
     """Build a point-in-time FundamentalRecord from a filing, dated by its
     filing_date (the only date a backtest may trust it from)."""
     return FundamentalRecord(
@@ -295,4 +325,62 @@ def to_record(filed: FiledResult, *, eps_ttm: float, book_value_per_share: float
         eps_ttm=eps_ttm,
         book_value_per_share=book_value_per_share,
         roe=roe,
+        net_profit=net_profit,
+        net_worth=net_worth,
+        total_debt=total_debt,
+        debt_to_equity=debt_to_equity,
+    )
+
+
+def build_record_from_financials(filed: FiledResult, fin: dict[str, float | None]) -> FundamentalRecord:
+    """Build a FundamentalRecord from FiledResult and parsed financials,
+    computing Net Worth, BVPS, Total Debt, and Debt-to-Equity automatically."""
+    eps = fin.get("basic_eps")
+    if eps is None:
+        raise ValueError(f"Filing for {filed.symbol} {filed.period_end} lacks basic_eps")
+        
+    net_profit = float(fin["net_profit"]) if fin.get("net_profit") is not None else None
+    eq_cap = float(fin["equity_capital"]) if fin.get("equity_capital") is not None else None
+    face_val = float(fin["face_value"]) if fin.get("face_value") is not None else 10.0
+    other_eq = float(fin["other_equity"]) if fin.get("other_equity") is not None else None
+    
+    net_worth = None
+    if fin.get("equity") is not None:
+        net_worth = float(fin["equity"])
+    elif eq_cap is not None and other_eq is not None:
+        net_worth = eq_cap + other_eq
+    elif eq_cap is not None:
+        net_worth = eq_cap
+        
+    bvps = 0.0
+    if net_worth is not None and eq_cap is not None and eq_cap > 0 and face_val > 0:
+        shares = eq_cap / face_val
+        bvps = net_worth / shares
+        
+    long_debt = float(fin["noncurrent_borrowings"]) if fin.get("noncurrent_borrowings") is not None else 0.0
+    short_debt = float(fin["current_borrowings"]) if fin.get("current_borrowings") is not None else 0.0
+    total_debt = long_debt + short_debt
+    if total_debt == 0.0 and fin.get("borrowings") is not None:
+        total_debt = float(fin["borrowings"])
+        
+    has_debt_info = (fin.get("noncurrent_borrowings") is not None or 
+                     fin.get("current_borrowings") is not None or 
+                     fin.get("borrowings") is not None)
+    if not has_debt_info:
+        total_debt = None
+        
+    d2e = None
+    if total_debt is not None and net_worth is not None and net_worth > 0:
+        d2e = total_debt / net_worth
+        
+    return FundamentalRecord(
+        symbol=filed.symbol,
+        period_end=filed.period_end,
+        publish_date=filed.filing_date,
+        eps_ttm=float(eps),
+        book_value_per_share=bvps,
+        net_profit=net_profit,
+        net_worth=net_worth,
+        total_debt=total_debt,
+        debt_to_equity=d2e,
     )

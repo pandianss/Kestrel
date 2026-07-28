@@ -67,6 +67,24 @@ def test_extract_financials_single_context_is_unambiguous():
     assert fin["basic_eps"] == 9.0 and fin["net_profit"] == 150_000.0
 
 
+def test_current_period_merges_pnl_and_balance_sheet():
+    # P&L in OneD (duration), balance sheet in OneI (instant) — must merge both
+    from kestrel.data.filings import current_period_financials
+    xb = (
+        b'<xbrl>'
+        b'<ProfitLossForPeriod contextRef="OneD">1000</ProfitLossForPeriod>'
+        b'<BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="OneD">9.0</BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations>'
+        b'<EquityAttributableToOwnersOfParent contextRef="OneI">50000</EquityAttributableToOwnersOfParent>'
+        b'<BorrowingsNoncurrent contextRef="OneI">8000</BorrowingsNoncurrent>'
+        b'<BorrowingsCurrent contextRef="OneI">2000</BorrowingsCurrent>'
+        b'</xbrl>'
+    )
+    fin = current_period_financials(xb)
+    assert fin["net_profit"] == 1000 and fin["basic_eps"] == 9.0     # from OneD
+    assert fin["equity"] == 50000                                     # from OneI
+    assert fin["noncurrent_borrowings"] == 8000 and fin["current_borrowings"] == 2000
+
+
 def test_current_quarter_picks_OneD():
     # OneD = current quarter (resolved 2026-07-25) -> the -0.71, not FourD's 0.10
     assert current_quarter_financials(SAMPLE_XBRL)["basic_eps"] == -0.71
@@ -129,3 +147,45 @@ def test_to_record_dates_by_filing():
     f = FiledResult("X", date(2024, 3, 31), date(2024, 5, 15))
     r = to_record(f, eps_ttm=5.0, book_value_per_share=50.0)
     assert r.publish_date == date(2024, 5, 15) and r.period_end == date(2024, 3, 31)
+
+
+def test_balance_sheet_parsing_and_metrics():
+    from kestrel.data.filings import build_record_from_financials, current_quarter_financials
+    
+    # XML with P&L and Balance Sheet facts
+    xbrl_data = (
+        b'<xbrl xmlns:f="urn:x">'
+        b'<f:RevenueFromOperations contextRef="OneD">100000</f:RevenueFromOperations>'
+        b'<f:ProfitLossForPeriod contextRef="OneD">15000</f:ProfitLossForPeriod>'
+        b'<f:BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="OneD">1.50</f:BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations>'
+        b'<f:PaidUpValueOfEquityShareCapital contextRef="OneD">10000</f:PaidUpValueOfEquityShareCapital>'
+        b'<f:FaceValueOfEquityShareCapital contextRef="OneD">10</f:FaceValueOfEquityShareCapital>'
+        b'<f:ReservesAndSurplus contextRef="OneD">90000</f:ReservesAndSurplus>'
+        b'<f:LongTermBorrowings contextRef="OneD">25000</f:LongTermBorrowings>'
+        b'<f:ShortTermBorrowings contextRef="OneD">5000</f:ShortTermBorrowings>'
+        b'</xbrl>'
+    )
+    
+    filed = FiledResult("BS_TEST", date(2026, 3, 31), date(2026, 5, 15))
+    fin = current_quarter_financials(xbrl_data)
+    
+    assert fin["equity_capital"] == 10000.0
+    assert fin["other_equity"] == 90000.0
+    assert fin["noncurrent_borrowings"] == 25000.0
+    assert fin["current_borrowings"] == 5000.0
+    
+    rec = build_record_from_financials(filed, fin)
+    
+    # Net Worth = equity_capital + other_equity = 10000 + 90000 = 100000
+    assert rec.net_worth == 100000.0
+    
+    # Shares = equity_capital / face_value = 10000 / 10 = 1000
+    # BVPS = Net Worth / Shares = 100000 / 1000 = 100.0
+    assert rec.book_value_per_share == 100.0
+    
+    # Total Debt = LongTermBorrowings + ShortTermBorrowings = 25000 + 5000 = 30000
+    assert rec.total_debt == 30000.0
+    
+    # Debt-to-Equity = Total Debt / Net Worth = 30000 / 100000 = 0.3
+    assert rec.debt_to_equity == 0.3
+
