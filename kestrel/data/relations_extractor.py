@@ -12,12 +12,14 @@ Sources (each recorded on the record's `source`):
     share** (`SegmentRevenue`, normalised over positive segment revenue). Real,
     filed numbers — not guesses.
   * **NSE index-constituents CSV** → NSE's **industry** classification.
+  * **NSE shareholding-pattern master** → the **promoter & promoter-group**
+    aggregate holding %, per quarter, dated by the disclosure (broadcast) date —
+    the verifiable corporate-control relationship and its trend.
 
 Deliberately NOT emitted (no verifiable free structured source):
-  * **Named subsidiaries / parent + holding %** — annual-report AOC-1 is
-    unstructured and NSE's shareholding API is access-gated. `CorporateRelation`
-    stays in the model for a future authoritative source, but nothing is written
-    here rather than fabricate a corporate tree.
+  * **Named subsidiaries** and individual promoter entities — annual-report
+    AOC-1 and the detailed shareholding XBRL are deeper/unstructured; only the
+    promoter *aggregate* is taken here, never a fabricated corporate tree.
   * **Products, granular sub-sectors** — left blank, never invented.
 """
 from __future__ import annotations
@@ -30,8 +32,47 @@ from typing import Callable
 
 from kestrel.data.filings import NSEFilingsSource, report_basis
 from kestrel.data.fundamentals_store import FundamentalsStore
-from kestrel.data.relations import IndustryMapping, ProductSegment
+from kestrel.data.relations import CorporateRelation, IndustryMapping, ProductSegment, RelationType
 from kestrel.data.relations_store import RelationsStore
+
+_SHP_URL = "https://www.nseindia.com/api/corporate-share-holdings-master?index=equities&symbol={symbol}"
+
+
+def _nse_upper_date(s: str):
+    """NSE shareholding dates come UPPER-cased ('30-JUN-2026'); title-case the
+    month so strptime accepts it."""
+    from datetime import datetime
+    return datetime.strptime(s.strip().split(" ")[0].title(), "%d-%b-%Y").date()
+
+
+def extract_promoter_relations(symbol: str, rows: list[dict], *, source: str) -> list[CorporateRelation]:
+    """Verifiable promoter & promoter-group holding per quarter, from NSE's
+    shareholding-pattern master (`pr_and_prgrp`). Dated by the broadcast date
+    (when it became public) — point-in-time safe. One relation per disclosure."""
+    out: list[CorporateRelation] = []
+    seen: set = set()
+    for r in rows:
+        pct = r.get("pr_and_prgrp")
+        pub = r.get("broadcastDate") or r.get("date")
+        if pct is None or pub is None:
+            continue
+        try:
+            frac = float(pct) / 100.0
+            pd_ = _nse_upper_date(pub)
+        except (ValueError, TypeError):
+            continue
+        if not (0.0 <= frac <= 1.0) or pd_ in seen:
+            continue
+        seen.add(pd_)
+        out.append(CorporateRelation(
+            source_symbol=symbol,
+            target_name_or_symbol="Promoter & Promoter Group",
+            relation_type=RelationType.PROMOTER_GROUP,
+            holding_pct=round(frac, 6),
+            publish_date=pd_,
+            source=source,
+        ))
+    return out
 
 
 def _local(tag: str) -> str:
@@ -113,11 +154,24 @@ def _latest_consolidated(filings, fetch_xbrl):
 
 
 def extract_symbol_relations(symbol, filings, fetch_xbrl, store: RelationsStore,
-                             *, industry: str | None = None) -> dict[str, int]:
+                             *, industry: str | None = None,
+                             shareholding_rows: list[dict] | None = None) -> dict[str, int]:
     """Populate `store` for one symbol from verifiable sources. Returns counts.
-    `relations` is always 0 — named corporate relations have no verifiable free
-    source, so none are fabricated."""
+
+    `relations` comes from the shareholding-pattern master (promoter holding %)
+    when `shareholding_rows` is supplied — the one verifiable corporate-control
+    source. Named subsidiaries are still not emitted (no verifiable free feed)."""
     added = {"relations": 0, "segments": 0, "industry": 0}
+
+    if shareholding_rows is not None:
+        src = _SHP_URL.format(symbol=symbol)
+        for rel in extract_promoter_relations(symbol, shareholding_rows, source=src):
+            try:
+                if store.add_relation(rel):
+                    added["relations"] += 1
+            except Exception:  # noqa: BLE001 — conflict/validation; skip one
+                pass
+
     xb, filed = _latest_consolidated(filings, fetch_xbrl)
     if xb is None or filed is None:
         return added
@@ -140,6 +194,17 @@ def extract_symbol_relations(symbol, filings, fetch_xbrl, store: RelationsStore,
     return added
 
 
+def _fetch_shareholding(getter, symbol: str) -> list[dict] | None:
+    """Fetch the shareholding-pattern master rows for `symbol`, or None on any
+    failure (relations are optional; a fetch error must not sink the profile)."""
+    import json
+    try:
+        d = json.loads(getter(_SHP_URL.format(symbol=symbol)))
+        return d if isinstance(d, list) else d.get("data", [])
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _is_fresh(store: RelationsStore, symbol: str, refresh_days: int) -> bool:
     """True if this symbol's segments were refreshed within refresh_days — so the
     harvest can skip it without re-downloading (segments change ~quarterly)."""
@@ -153,20 +218,23 @@ def _is_fresh(store: RelationsStore, symbol: str, refresh_days: int) -> bool:
 def harvest_all_relations(fundamentals_root: str | Path = "data/fundamentals",
                           relations_root: str | Path = "data/relations",
                           *, source=None, industry=None, symbols=None,
-                          refresh_days=7, log=print) -> dict[str, int]:
+                          shareholding_getter=None, refresh_days=7, log=print) -> dict[str, int]:
     """Refresh verifiable company reference data for the symbols in the
-    fundamentals store. Reads each company's latest filing (segments) and NSE's
-    industry classification. Resumable: a symbol refreshed within `refresh_days`
-    is skipped (no re-download). Returns counts (keys the worker logs)."""
+    fundamentals store: segments + industry from the filing/NSE, and promoter
+    holding % from the shareholding-pattern master. Resumable: a symbol
+    refreshed within `refresh_days` is skipped. Returns counts (keys the worker
+    logs)."""
     if symbols is None:
         symbols = FundamentalsStore(fundamentals_root).symbols()
     store = RelationsStore(relations_root)
     pending = [s for s in symbols if not _is_fresh(store, s, refresh_days)]
     if not pending:
         return {"symbols_processed": 0, "relations_added": 0, "segments_added": 0, "industry_added": 0}
-    if source is None:
+    if source is None or shareholding_getter is None:
         from kestrel.data.nse_http import make_nse_getter
-        source = NSEFilingsSource(http=make_nse_getter())
+        getter = make_nse_getter()
+        source = source or NSEFilingsSource(http=getter)
+        shareholding_getter = shareholding_getter or getter
     if industry is None:
         industry = industry_map()
 
@@ -174,8 +242,9 @@ def harvest_all_relations(fundamentals_root: str | Path = "data/fundamentals",
     for sym in pending:
         try:
             filings = source.recent(date(2000, 1, 1), symbol=sym)
+            shp = _fetch_shareholding(shareholding_getter, sym)
             c = extract_symbol_relations(sym, filings, source.fetch_xbrl, store,
-                                         industry=industry.get(sym))
+                                         industry=industry.get(sym), shareholding_rows=shp)
         except Exception as e:  # noqa: BLE001
             log(f"  {sym}: relations error: {e}")
             continue

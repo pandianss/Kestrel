@@ -26,6 +26,7 @@ class CorporateRelation:
     relation_type: RelationType
     holding_pct: float            # e.g., 0.51 for 51% stake
     publish_date: date            # when it was publicly filed/disclosed
+    source: str = ""              # provenance: where this was disclosed
 
     def __post_init__(self) -> None:
         if not (0.0 <= self.holding_pct <= 1.0):

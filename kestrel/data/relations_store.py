@@ -33,6 +33,7 @@ def _relation_from_json(line: str) -> CorporateRelation:
         relation_type=RelationType(d["relation_type"]),
         holding_pct=d["holding_pct"],
         publish_date=date.fromisoformat(d["publish_date"]),
+        source=d.get("source", ""),
     )
 
 

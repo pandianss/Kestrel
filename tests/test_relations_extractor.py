@@ -6,7 +6,9 @@ industry from NSE constituents, and NO invented corporate relations."""
 from datetime import date
 
 from kestrel.data.filings import FiledResult, StaticFilings
+from kestrel.data.relations import RelationType
 from kestrel.data.relations_extractor import (
+    extract_promoter_relations,
     extract_segments,
     extract_symbol_relations,
     harvest_all_relations,
@@ -62,6 +64,37 @@ def test_extract_symbol_writes_verifiable_segments_and_industry(tmp_path):
     ind = store.industry_asof("X", date(2025, 1, 1))
     assert ind.primary_industry == "Energy" and ind.sub_sector == ""   # blank, not guessed
     assert ind.source == "nse:indices/constituents"
+
+
+_SHP = [
+    {"pr_and_prgrp": 50.48, "broadcastDate": "16-JUL-2026 19:24:44", "date": "30-JUN-2026"},
+    {"pr_and_prgrp": 50.30, "broadcastDate": "18-APR-2026 10:00:00", "date": "31-MAR-2026"},
+    {"pr_and_prgrp": None, "broadcastDate": "x", "date": "y"},   # skipped
+]
+
+
+def test_extract_promoter_relations_from_shareholding():
+    rels = extract_promoter_relations("X", _SHP, source="u")
+    assert len(rels) == 2
+    r = rels[0]
+    assert r.relation_type is RelationType.PROMOTER_GROUP
+    assert r.target_name_or_symbol == "Promoter & Promoter Group"
+    assert r.holding_pct == 0.5048 and r.publish_date == date(2026, 7, 16)  # UPPER date parsed
+    assert r.source == "u"
+
+
+def test_extract_symbol_writes_promoter_relations(tmp_path):
+    store = RelationsStore(tmp_path)
+    src = _source()
+    c = extract_symbol_relations("X", src.recent(date(2000, 1, 1)), src.fetch_xbrl, store,
+                                 industry="Energy", shareholding_rows=_SHP)
+    assert c["relations"] == 2          # both quarters stored to history
+    rels = store.relations_asof("X", date(2027, 1, 1))
+    assert len(rels) == 1               # asof returns the latest per target
+    assert rels[0].holding_pct == 0.5048
+    assert rels[0].source.startswith("https://www.nseindia.com/api/")
+    # the older disclosure is the point-in-time view before the newer one
+    assert store.relations_asof("X", date(2026, 5, 1))[0].holding_pct == 0.503
 
 
 def test_no_industry_written_when_unknown(tmp_path):
