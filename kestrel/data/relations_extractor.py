@@ -206,13 +206,17 @@ def _fetch_shareholding(getter, symbol: str) -> list[dict] | None:
 
 
 def _is_fresh(store: RelationsStore, symbol: str, refresh_days: int) -> bool:
-    """True if this symbol's segments were refreshed within refresh_days — so the
-    harvest can skip it without re-downloading (segments change ~quarterly)."""
+    """True if this symbol was processed within refresh_days — so a re-run skips
+    it without re-downloading. Checks ANY of the three outputs (a single-segment
+    company writes no segments file but does write promoter/industry), so a
+    symbol that produced *something* is not needlessly re-fetched."""
     import time
-    p = store._segments_path(symbol)
-    if not p.exists():
+    paths = [store._relations_path(symbol), store._segments_path(symbol),
+             store._industry_path(symbol)]
+    mtimes = [p.stat().st_mtime for p in paths if p.exists()]
+    if not mtimes:
         return False
-    return (time.time() - p.stat().st_mtime) / 86400.0 < refresh_days
+    return (time.time() - max(mtimes)) / 86400.0 < refresh_days
 
 
 def harvest_all_relations(fundamentals_root: str | Path = "data/fundamentals",
@@ -239,7 +243,9 @@ def harvest_all_relations(fundamentals_root: str | Path = "data/fundamentals",
         industry = industry_map()
 
     tot = {"symbols_processed": 0, "relations_added": 0, "segments_added": 0, "industry_added": 0}
-    for sym in pending:
+    n = len(pending)
+    log(f"  {n} symbol(s) to process (each pulls filings + shareholding + segments) ...")
+    for i, sym in enumerate(pending, 1):
         try:
             filings = source.recent(date(2000, 1, 1), symbol=sym)
             shp = _fetch_shareholding(shareholding_getter, sym)
@@ -252,4 +258,7 @@ def harvest_all_relations(fundamentals_root: str | Path = "data/fundamentals",
         tot["relations_added"] += c["relations"]
         tot["segments_added"] += c["segments"]
         tot["industry_added"] += c["industry"]
+        if i % 10 == 0 or i == n:
+            log(f"  … {i}/{n}  {sym:<12} (+{tot['relations_added']} rel, "
+                f"+{tot['segments_added']} seg, +{tot['industry_added']} ind)")
     return tot
