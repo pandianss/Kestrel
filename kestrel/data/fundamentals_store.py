@@ -55,9 +55,42 @@ class FundamentalsStore:
         # file per call would be O(N·M) disk reads. Lazy-load once per symbol and
         # keep the cache fresh on add(). Per-instance; single-process by design.
         self._cache: dict[str, list[FundamentalRecord]] = {}
+        self._attempted: set[tuple[str, str, str]] | None = None   # negative cache
 
     def _path(self, symbol: str) -> Path:
         return self.root / f"{symbol}.jsonl"
+
+    # ---- negative cache: filings tried that yielded no record -----------
+    # Some filings deterministically produce nothing (no current-quarter EPS, or
+    # an ambiguous context layout). Without remembering them, a re-run re-fetches
+    # every one of them each cycle — pure wasted network. This records them so
+    # they are skipped next time. (An amendment gets a new publish_date, hence a
+    # new key, so it is NOT skipped.)
+    def _attempted_path(self) -> Path:
+        return self.root / "_attempted.jsonl"
+
+    def _load_attempted(self) -> set[tuple[str, str, str]]:
+        if self._attempted is None:
+            p = self._attempted_path()
+            self._attempted = set()
+            if p.exists():
+                for ln in p.read_text(encoding="utf-8").splitlines():
+                    parts = ln.strip().split("|")
+                    if len(parts) == 3:
+                        self._attempted.add((parts[0], parts[1], parts[2]))
+        return self._attempted
+
+    def was_attempted(self, symbol: str, period_end: date, publish_date: date) -> bool:
+        return (symbol, period_end.isoformat(), publish_date.isoformat()) in self._load_attempted()
+
+    def mark_attempted(self, symbol: str, period_end: date, publish_date: date) -> None:
+        key = (symbol, period_end.isoformat(), publish_date.isoformat())
+        if key in self._load_attempted():
+            return
+        self._attempted.add(key)
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self._attempted_path().open("a", encoding="utf-8") as f:
+            f.write("|".join(key) + "\n")
 
     def _load(self, symbol: str) -> list[FundamentalRecord]:
         cached = self._cache.get(symbol)

@@ -58,18 +58,24 @@ def run_harvest(source, store, since, *, limit=0, pause=0.3,
         if store.has(filed.symbol, filed.period_end, filed.filing_date):
             c["skipped"] += 1
             continue
+        # Already tried and yielded nothing (no EPS / ambiguous)? Don't re-fetch.
+        if store.was_attempted(filed.symbol, filed.period_end, filed.filing_date):
+            c["skipped"] += 1
+            continue
         try:
             fin = current_period_financials(source.fetch_xbrl(filed))
             eps = fin.get("basic_eps")
             if eps is None:
                 c["no_eps"] += 1
+                store.mark_attempted(filed.symbol, filed.period_end, filed.filing_date)
             elif store.add(build_record_from_financials(filed, fin)):
                 c["written"] += 1
         except AmbiguousContextError:
             c["ambiguous"] += 1
-        except Exception:  # noqa: BLE001 — one bad filing shouldn't stop the harvest
+            store.mark_attempted(filed.symbol, filed.period_end, filed.filing_date)
+        except Exception:  # noqa: BLE001 — transient (network/parse); retry next cycle
             c["errors"] += 1
-        sleep(pause)   # pace every network fetch; skips (has) never reach here
+        sleep(pause)   # pace every network fetch; skips never reach here
         if i % 50 == 0:
             log(f"  … {i}/{len(filings)}  (written {c['written']}, skipped {c['skipped']})")
     return c

@@ -23,6 +23,18 @@ def test_add_and_asof_roundtrip(tmp_path):
     assert s.symbols() == ["X"]
 
 
+def test_negative_cache_skips_dead_filings(tmp_path):
+    s = FundamentalsStore(tmp_path)
+    pe, pub = date(2024, 3, 31), date(2024, 5, 15)
+    assert s.was_attempted("X", pe, pub) is False
+    s.mark_attempted("X", pe, pub)
+    assert s.was_attempted("X", pe, pub) is True
+    # persists to a fresh instance (survives worker restarts)
+    assert FundamentalsStore(tmp_path).was_attempted("X", pe, pub) is True
+    # an amendment (new publish_date) is a new key -> NOT skipped
+    assert s.was_attempted("X", pe, date(2024, 9, 1)) is False
+
+
 def test_has_supports_resumable_harvest(tmp_path):
     s = FundamentalsStore(tmp_path)
     r = record_with_lag("X", date(2024, 3, 31), 10, 100)   # publish ~2024-05-15
