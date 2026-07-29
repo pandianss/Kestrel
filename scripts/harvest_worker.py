@@ -140,6 +140,20 @@ def main() -> int:
     if not _acquire_lock():
         return 0
 
+    banner = (
+        "=================================================================\n"
+        "  KESTREL FUNDAMENTALS WORKER  (background service)\n"
+        "=================================================================\n"
+        "  Keeps the company-financials store current. Every cycle it checks\n"
+        "  NSE's results filings and ingests any NEW ones (point-in-time),\n"
+        "  skipping filings already stored. Then it sleeps until the next\n"
+        f"  cycle. Store: data/fundamentals\n"
+        f"  Cycle interval: {interval//3600}h {(interval%3600)//60}m   ·   "
+        f"per-fetch pause: {pause}s   ·   run-once: {once}\n"
+        "  'written' = new filings added   ·   'skipped' = already had them\n"
+        "================================================================="
+    )
+    print(banner, flush=True)
     _log(f"worker starting (interval {interval}s, pause {pause}s, once={once})")
     try:
         while not _stop["flag"]:
