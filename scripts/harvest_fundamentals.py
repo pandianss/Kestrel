@@ -40,11 +40,13 @@ def _arg(flag: str, default: str | None = None) -> str | None:
 
 
 def run_harvest(source, store, since, *, limit=0, pause=0.3,
-                sleep=time.sleep, log=print, should_stop=None) -> dict:
+                sleep=time.sleep, log=print, should_stop=None, archive=None) -> dict:
     """Ingest new filings from `source` into `store`. Resumable (skips filings
     already stored, never re-fetching them) and interruptible (`should_stop` is
-    polled each iteration). Reused by the CLI and the background worker. Returns
-    a counts dict."""
+    polled each iteration). Raw XBRL is archived (D-15). Returns a counts dict."""
+    from kestrel.data.filing_archive import FilingArchive, get_xbrl
+    if archive is None:
+        archive = FilingArchive()
     filings = source.recent(since)
     if limit:
         filings = filings[:limit]
@@ -63,7 +65,8 @@ def run_harvest(source, store, since, *, limit=0, pause=0.3,
             c["skipped"] += 1
             continue
         try:
-            fin = current_period_financials(source.fetch_xbrl(filed))
+            xb, _ = get_xbrl(archive, source, filed.symbol, filed)
+            fin = current_period_financials(xb)
             eps = fin.get("basic_eps")
             if eps is None:
                 c["no_eps"] += 1

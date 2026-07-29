@@ -28,9 +28,15 @@ STORE_ROOT = "data/fundamentals"
 _BASIS_RANK = {"consolidated": 2, "standalone": 1, "unknown": 0}
 
 
-def backfill_symbol(source, store, symbol, *, pause=0.3, sleep=time.sleep, log=print) -> dict:
+def backfill_symbol(source, store, symbol, *, pause=0.3, sleep=time.sleep, log=print,
+                    archive=None) -> dict:
     """Fetch `symbol`'s full history and store one record per quarter, preferring
-    consolidated. Resumable: quarters already stored are skipped un-fetched."""
+    consolidated. Resumable: quarters already stored are skipped un-fetched. The
+    raw XBRL is archived (D-15) so a re-run reads locally and a parser fix can
+    reprocess without re-fetching."""
+    from kestrel.data.filing_archive import FilingArchive, get_xbrl
+    if archive is None:
+        archive = FilingArchive()
     filings = source.recent(date(2000, 1, 1), symbol=symbol)
     # best (highest-basis) EPS per new period_end
     best: dict[date, tuple] = {}
@@ -38,9 +44,10 @@ def backfill_symbol(source, store, symbol, *, pause=0.3, sleep=time.sleep, log=p
     for filed in filings:
         if store.has_period(symbol, filed.period_end):
             continue   # already have this quarter — don't re-fetch either filing
+        from_archive = False
         try:
-            xb = source.fetch_xbrl(filed)
-            fetched += 1
+            xb, from_archive = get_xbrl(archive, source, symbol, filed)
+            fetched += 0 if from_archive else 1
             fin = current_period_financials(xb)   # P&L + balance sheet
             if fin.get("basic_eps") is None:
                 continue
@@ -50,7 +57,8 @@ def backfill_symbol(source, store, symbol, *, pause=0.3, sleep=time.sleep, log=p
                 best[filed.period_end] = (rank, fin, filed.filing_date)
         except Exception:  # noqa: BLE001 — ambiguous/parse/network; skip one filing
             pass
-        sleep(pause)
+        if not from_archive:
+            sleep(pause)   # pace only real network fetches; archive reads are free
 
     written = 0
     for pe, (_rank, fin, fd) in best.items():
