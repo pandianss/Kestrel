@@ -63,13 +63,13 @@ Remove-Item Env:\KITE_API_SECRET -ErrorAction SilentlyContinue
 Write-Host "`n[3/4] Refreshing the local dashboard ..." -ForegroundColor Cyan
 & $py scripts/dashboard.py
 
-# Ensure the background fundamentals worker is running (no-op if already up).
-Write-Host "`n[4/4] Ensuring the background fundamentals worker is running ..." -ForegroundColor Cyan
-& (Join-Path $here 'harvest_worker.ps1')
+# Ensure Mission Control (server) is up — it brings up the worker itself.
+Write-Host "`n[4/4] Ensuring Mission Control (server + worker) is running ..." -ForegroundColor Cyan
+& (Join-Path $here 'start_control.ps1')
 
 if ($rc -eq 0) {
-    Write-Host "`nDone. Universe captured; dashboard refreshed; fundamentals worker up." -ForegroundColor Green
+    Write-Host "`nDone. Universe captured; dashboard refreshed; Mission Control up (http://localhost:8000)." -ForegroundColor Green
 } else {
-    Write-Host "`nSnapshot exit $rc — see above. Dashboard refreshed; worker ensured." -ForegroundColor Yellow
+    Write-Host "`nSnapshot exit $rc — see above. Dashboard refreshed; Mission Control ensured." -ForegroundColor Yellow
 }
 exit $rc

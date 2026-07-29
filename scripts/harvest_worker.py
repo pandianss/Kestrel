@@ -84,7 +84,11 @@ def _acquire_lock() -> bool:
         try:
             other = int(PIDFILE.read_text().strip())
             if other != os.getpid() and _pid_alive(other):
-                _log(f"another worker is running (pid {other}) — exiting")
+                # A duplicate-start attempt is normal (Task Scheduler, morning.ps1,
+                # a dashboard click). Keep it OUT of the streamed worker log — that
+                # log should show real harvest cycles, not lock rejections — so
+                # print to stdout only.
+                print(f"another worker already running (pid {other}) — exiting", flush=True)
                 return False
         except (ValueError, OSError):
             pass

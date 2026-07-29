@@ -309,7 +309,30 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             self.send_error(404, "Unknown POST endpoint")
 
 
+def ensure_worker_running() -> str:
+    """Start the fundamentals worker if it isn't already running (idempotent).
+    Called on server startup so bringing up Mission Control brings up the whole
+    background pipeline. Windowless so it doesn't pop a console."""
+    status = get_system_status()
+    if status["worker"]["status"] == "RUNNING":
+        return f"worker already running (pid {status['worker']['pid']})"
+    if PID_FILE.exists():
+        try:
+            PID_FILE.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+    flags = 0x08000000 if os.name == "nt" else 0   # CREATE_NO_WINDOW
+    proc = subprocess.Popen([sys.executable, "scripts/harvest_worker.py"],
+                            cwd=str(REPO_ROOT), creationflags=flags)
+    return f"started worker (pid {proc.pid})"
+
+
 def run_server(port: int = PORT) -> None:
+    # Bring up the background worker as part of startup (idempotent).
+    try:
+        print(f"  worker: {ensure_worker_running()}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  worker: could not auto-start ({e})")
     # Bind to loopback ONLY. This server can start/stop processes and mint
     # tokens, so it must never be reachable from the network — on-host operator
     # control plane only (matches the design's on-host posture, D-18 / doc 10).
