@@ -31,9 +31,11 @@ _BASIS_RANK = {"consolidated": 2, "standalone": 1, "unknown": 0}
 def backfill_symbol(source, store, symbol, *, pause=0.3, sleep=time.sleep, log=print,
                     archive=None) -> dict:
     """Fetch `symbol`'s full history and store one record per quarter, preferring
-    consolidated. Resumable: quarters already stored are skipped un-fetched. The
-    raw XBRL is archived (D-15) so a re-run reads locally and a parser fix can
-    reprocess without re-fetching."""
+    consolidated. The raw XBRL of EVERY filing is archived (D-15) — archival is
+    NOT gated on ingestion, so even a quarter whose derived record already exists
+    still has its original saved (closes the pre-archive gap). Resumable: once a
+    filing is archived, get_xbrl reads it locally (no re-fetch); ingestion of a
+    quarter already stored is skipped."""
     from kestrel.data.filing_archive import FilingArchive, get_xbrl
     if archive is None:
         archive = FilingArchive()
@@ -42,19 +44,21 @@ def backfill_symbol(source, store, symbol, *, pause=0.3, sleep=time.sleep, log=p
     best: dict[date, tuple] = {}
     fetched = 0
     for filed in filings:
-        if store.has_period(symbol, filed.period_end):
-            continue   # already have this quarter — don't re-fetch either filing
+        have_period = store.has_period(symbol, filed.period_end)
         from_archive = False
         try:
+            # Always archive the original, even for an already-ingested quarter:
+            # the record may have been stored by a pre-archive run that discarded
+            # the source doc. has_period gates INGESTION, not archival.
             xb, from_archive = get_xbrl(archive, source, symbol, filed)
             fetched += 0 if from_archive else 1
-            fin = current_period_financials(xb)   # P&L + balance sheet
-            if fin.get("basic_eps") is None:
-                continue
-            rank = _BASIS_RANK.get(report_basis(xb), 0)
-            cur = best.get(filed.period_end)
-            if cur is None or rank > cur[0]:
-                best[filed.period_end] = (rank, fin, filed.filing_date)
+            if not have_period:
+                fin = current_period_financials(xb)   # P&L + balance sheet
+                if fin.get("basic_eps") is not None:
+                    rank = _BASIS_RANK.get(report_basis(xb), 0)
+                    cur = best.get(filed.period_end)
+                    if cur is None or rank > cur[0]:
+                        best[filed.period_end] = (rank, fin, filed.filing_date)
         except Exception:  # noqa: BLE001 — ambiguous/parse/network; skip one filing
             pass
         if not from_archive:
