@@ -96,9 +96,19 @@ class FundamentalsStore:
         cached = self._cache.get(symbol)
         if cached is not None:
             return cached
+        recs: list[FundamentalRecord] = []
         p = self._path(symbol)
-        recs = ([] if not p.exists()
-                else [_from_json(ln) for ln in p.read_text().splitlines() if ln.strip()])
+        if p.exists():
+            for ln in p.read_text(encoding="utf-8").splitlines():
+                if not ln.strip():
+                    continue
+                try:
+                    recs.append(_from_json(ln))
+                except (json.JSONDecodeError, ValueError, KeyError):
+                    # A partial line from a concurrent write, or a corrupt line —
+                    # skip it rather than crash the whole read. Don't cache a
+                    # partial read as complete if we hit one.
+                    continue
         self._cache[symbol] = recs
         return recs
 
