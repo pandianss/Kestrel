@@ -65,7 +65,22 @@ def backfill_symbol(source, store, symbol, *, pause=0.3, sleep=time.sleep, log=p
     return {"symbol": symbol, "written": written, "fetched": fetched}
 
 
+DONE_FILE = Path(STORE_ROOT) / "_backfilled.txt"
+
+
+def _load_done() -> set[str]:
+    return set(DONE_FILE.read_text(encoding="utf-8").split()) if DONE_FILE.exists() else set()
+
+
+def _mark_done(sym: str) -> None:
+    DONE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DONE_FILE.open("a", encoding="utf-8") as f:
+        f.write(sym + "\n")
+
+
 def _symbols_from_args() -> list[str]:
+    if "--all" in sys.argv:
+        return FundamentalsStore(STORE_ROOT).symbols()
     if "--nifty50" in sys.argv:
         from kestrel.data.constituents import NSEConstituentsSource, parse_symbols
         return parse_symbols(NSEConstituentsSource("nifty50").fetch())
@@ -75,17 +90,40 @@ def _symbols_from_args() -> list[str]:
 def main() -> int:
     symbols = _symbols_from_args()
     if not symbols:
-        print("Usage: python scripts/backfill_fundamentals.py SYMBOL [SYMBOL ...] | --nifty50")
+        print("Usage: python scripts/backfill_fundamentals.py SYMBOL [...] | --nifty50 | --all")
         return 2
     getter = make_nse_getter()
     from kestrel.data.filings import NSEFilingsSource
     src = NSEFilingsSource(http=getter)
     store = FundamentalsStore(STORE_ROOT)
-    print(f"Backfilling fundamentals history for {len(symbols)} symbol(s) ...")
+
+    # Symbol-level resumability: skip companies already backfilled (survives a
+    # stop/restart of this multi-hour batch without re-fetching their history).
+    done = _load_done()
+    pending = [s for s in symbols if s not in done]
+    print("=================================================================")
+    print("  KESTREL FUNDAMENTALS HISTORY BACKFILL")
+    print("=================================================================")
+    print(f"  {len(symbols)} symbol(s); {len(done)} already done; {len(pending)} to go.")
+    print(f"  Each pulls a company's full quarterly results history from NSE.")
+    print(f"  Resumable — safe to stop (Ctrl-C) and restart; it skips done names.")
+    print("=================================================================")
+
     total = 0
-    for sym in symbols:
-        total += backfill_symbol(src, store, sym)["written"]
-    print(f"\nDone. +{total} quarter-record(s). Run scripts/fundamentals_trends.py to compare.")
+    t0 = time.perf_counter()
+    for i, sym in enumerate(pending, 1):
+        try:
+            total += backfill_symbol(src, store, sym)["written"]
+            _mark_done(sym)
+        except Exception as e:  # noqa: BLE001 — one symbol shouldn't kill the batch
+            print(f"  [ERROR] {sym}: {e}")
+        if i % 25 == 0 or i == len(pending):
+            rate = i / max(time.perf_counter() - t0, 1e-6)
+            eta = (len(pending) - i) / rate / 60.0
+            print(f"  … {i}/{len(pending)} done  (+{total} quarters)  ~{eta:.0f} min left")
+
+    print(f"\nDone. +{total} quarter-record(s) across {len(pending)} symbol(s). "
+          f"Run scripts/fundamentals_trends.py to compare.")
     return 0
 
 
