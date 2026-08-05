@@ -48,6 +48,9 @@ class Trend:
     yoy_growth: float | None             # % vs ~4 quarters earlier, None if base ≤ 0
     slope: float | None                  # EPS change per quarter (least squares)
     direction: str                       # "improving" | "declining" | "flat" | "insufficient"
+    latest_roe: float | None = None
+    latest_debt_to_equity: float | None = None
+    latest_book_value_per_share: float | None = None
 
 
 def build_series(records: list[FundamentalRecord], *, asof: date | None = None) -> list[QuarterPoint]:
@@ -96,12 +99,82 @@ def _valid_prev_year(d: date) -> bool:
         return False
 
 
+def _calculate_balance_sheet_metrics(records: list[FundamentalRecord], asof: date | None, latest_eps: float | None) -> tuple[float | None, float | None, float | None]:
+    public_recs = sorted(
+        [r for r in records if (asof is None or r.publish_date <= asof)],
+        key=lambda r: r.publish_date
+    )
+    if not public_recs:
+        return None, None, None
+
+    # 1. Latest Book Value per Share
+    latest_bvps = None
+    for r in reversed(public_recs):
+        if r.book_value_per_share > 0:
+            latest_bvps = r.book_value_per_share
+            break
+
+    # 2. Latest Net Worth and Total Debt
+    latest_net_worth = None
+    latest_total_debt = None
+    for r in reversed(public_recs):
+        if r.net_worth is not None:
+            latest_net_worth = r.net_worth
+            break
+    for r in reversed(public_recs):
+        if r.total_debt is not None:
+            latest_total_debt = r.total_debt
+            break
+
+    # 3. Compute Debt to Equity
+    latest_d2e = None
+    if latest_total_debt is not None and latest_net_worth is not None and latest_net_worth > 0:
+        latest_d2e = latest_total_debt / latest_net_worth
+
+    # 4. Compute ROE
+    latest_roe = None
+    pe_recs = {}
+    for r in public_recs:
+        pe_recs[r.period_end] = r
+    sorted_pe_recs = [pe_recs[pe] for pe in sorted(pe_recs)]
+
+    if len(sorted_pe_recs) >= 4:
+        last_4 = sorted_pe_recs[-4:]
+        span_days = (last_4[-1].period_end - last_4[0].period_end).days
+        if 270 <= span_days <= 370 and all(r.net_profit is not None for r in last_4):
+            ttm_profit = sum(r.net_profit for r in last_4)
+            if latest_net_worth is not None and latest_net_worth > 0:
+                latest_roe = ttm_profit / latest_net_worth
+
+    # ROE is reported ONLY from real TTM profit over real net worth (above).
+    # We deliberately do NOT fall back to EPS / book_value: when the balance
+    # sheet is missing (as it is for most results-only filings) BVPS is often a
+    # placeholder, and EPS/BVPS then produces absurd "ROE" (e.g. 2128, or simply
+    # EPS itself when BVPS≈1) that the scorer read as world-class quality. Better
+    # to return None (scored as neutral) than to invent a number.
+    # Sanity clamp: a real ROE outside [-100%, +150%] is a data error, not a
+    # genuine return — discard it rather than let it saturate the quality pillar.
+    if latest_roe is not None and not (-1.0 <= latest_roe <= 1.5):
+        latest_roe = None
+
+    return latest_roe, latest_d2e, latest_bvps
+
+
 def analyse(symbol: str, records: list[FundamentalRecord], *,
-            asof: date | None = None, flat_band: float = 0.02) -> Trend:
+            asof: date | None = None, flat_band: float = 0.02,
+            min_quarters: int = 4) -> Trend:
     pts = build_series(records, asof=asof)
-    if len(pts) < 2:
+    latest_roe, latest_d2e, latest_bvps = _calculate_balance_sheet_metrics(records, asof, pts[-1].eps if pts else None)
+
+    # Confidence gate: a direction from 2–3 quarters is a single delta, not a
+    # trend — indistinguishable from a microcap's earnings bouncing around. We
+    # need at least a year of quarters (default 4) before we'll call a company
+    # "improving"/"declining". Below that it is honestly "insufficient", and we
+    # suppress slope/QoQ/YoY so nothing downstream scores it as a real trajectory.
+    if len(pts) < min_quarters:
         return Trend(symbol, tuple(pts), len(pts), pts[-1].eps if pts else None,
-                     None, None, None, None, "insufficient")
+                     None, None, None, None, "insufficient",
+                     latest_roe, latest_d2e, latest_bvps)
 
     ys = [p.eps for p in pts]
     slope = _slope(ys)
@@ -114,7 +187,8 @@ def analyse(symbol: str, records: list[FundamentalRecord], *,
     qoq_change = latest - prev
     qoq_growth = (latest / prev - 1.0) if prev > 0 else None
     return Trend(symbol, tuple(pts), len(pts), latest, qoq_change, qoq_growth,
-                 _yoy_growth(pts), slope, direction)
+                 _yoy_growth(pts), slope, direction,
+                 latest_roe, latest_d2e, latest_bvps)
 
 
 def company_trend(store, symbol: str, *, asof: date | None = None,
