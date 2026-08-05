@@ -128,6 +128,23 @@ def test_nse_source_parses_injected_json():
     assert got[0].period_end == date(2024, 6, 30) and got[0].filing_date == date(2024, 7, 11)
 
 
+def test_nse_source_merges_legacy_and_integrated_feeds():
+    # The legacy feed is frozen at 2024; the Integrated Filing feed carries the
+    # current quarters with a DIFFERENT row shape (qe_Date / broadcast_Date).
+    legacy = [{"symbol": "X", "toDate": "31-Dec-2024", "filingDate": "16-Jan-2025 19:38",
+               "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/old.xml"}]
+    integrated = [{"symbol": "X", "qe_Date": "30-JUN-2026", "broadcast_Date": "17-Jul-2026 19:50:03",
+                   "consolidated": "Consolidated", "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_new.xml"}]
+
+    def http(url):
+        return json.dumps(integrated if "integrated-filing-results" in url else legacy).encode()
+
+    got = {(f.symbol, f.period_end): f for f in NSEFilingsSource(http=http).recent(date(2000, 1, 1))}
+    # both feeds contribute: the frozen 2024 quarter AND the current 2026 quarter
+    assert (("X", date(2024, 12, 31)) in got) and (("X", date(2026, 6, 30)) in got)
+    assert got[("X", date(2026, 6, 30))].filing_date == date(2026, 7, 17)
+
+
 def test_ingestion_writes_point_in_time_record(tmp_path):
     from scripts.ingest_fundamentals import ingest
 

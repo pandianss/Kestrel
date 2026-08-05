@@ -259,6 +259,12 @@ class StaticFilings:
 
 
 _NSE_RESULTS_URL = "https://www.nseindia.com/api/corporates-financial-results?index=equities&period=Quarterly"
+#: NSE's "Integrated Filing" results feed. The legacy feed above went stale — it
+#: stopped serving new quarters at Dec-2024 (~early 2025, when NSE migrated
+#: results to Integrated Filing). This feed carries the current quarters but only
+#: reaches back to 2025, so the two are merged for full history + current data.
+_NSE_INTEGRATED_URL = ("https://www.nseindia.com/api/integrated-filing-results"
+                       "?index=equities&period=Quarterly&type=Integrated%20Filing-%20Financials")
 
 
 class NSEFilingsSource:
@@ -271,18 +277,38 @@ class NSEFilingsSource:
         self._http = http
 
     def recent(self, since: date, *, symbol: str | None = None) -> list[FiledResult]:
-        """Results filed on/after `since`. With `symbol`, returns that one
-        company's full history (the per-symbol endpoint) rather than the
-        current-season list across all companies."""
+        """Results filed on/after `since`. With `symbol`, that one company's
+        history; otherwise the current season across companies.
+
+        Merges TWO NSE feeds because neither is complete on its own: the legacy
+        `corporates-financial-results` feed holds full history but is FROZEN at
+        the Dec-2024 quarter, while `integrated-filing-results` is current but
+        only reaches back to 2025. De-duped by XBRL URL (they barely overlap at
+        the 2024/2025 boundary). A failure of one feed must not sink the other."""
         if self._http is None:
             raise RuntimeError(
                 "NSEFilingsSource needs a live HTTP getter with NSE session "
                 "headers/cookies — not available unauthenticated. Calibrate it "
                 "on-host, or use StaticFilings for development."
             )
+        out: list[FiledResult] = []
+        seen: set[str] = set()
+        for fetch in (self._fetch_legacy, self._fetch_integrated):
+            try:
+                rows = fetch(since, symbol)
+            except Exception:  # noqa: BLE001 — a dead/changed feed shouldn't kill the other
+                rows = []
+            for f in rows:
+                key = f.xbrl_url or f"{f.symbol}|{f.period_end}|{f.filing_date}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(f)
+        return out
+
+    def _fetch_legacy(self, since: date, symbol: str | None) -> list[FiledResult]:
         import json
         import urllib.parse
-
         url = _NSE_RESULTS_URL + (f"&symbol={urllib.parse.quote(symbol)}" if symbol else "")
         rows = json.loads(self._http(url))
         if isinstance(rows, dict):
@@ -304,6 +330,34 @@ class NSEFilingsSource:
                 ))
             except (KeyError, ValueError):
                 continue   # shape drift on a row is skipped, not fatal
+        return out
+
+    def _fetch_integrated(self, since: date, symbol: str | None) -> list[FiledResult]:
+        """The Integrated Filing feed. Different row shape: `qe_Date` is the
+        quarter end, `broadcast_Date` the filing timestamp, `xbrl` the doc URL."""
+        import json
+        import urllib.parse
+        url = _NSE_INTEGRATED_URL + (f"&symbol={urllib.parse.quote(symbol)}" if symbol else "")
+        rows = json.loads(self._http(url))
+        if isinstance(rows, dict):
+            rows = rows.get("data", [])
+        out: list[FiledResult] = []
+        for r in rows:
+            try:
+                xbrl = r.get("xbrl", "") or ""
+                if not xbrl.lower().endswith(".xml"):
+                    continue
+                fd = _nse_date(r["broadcast_Date"])   # "24-Apr-2026 22:57:12"
+                if fd < since:
+                    continue
+                out.append(FiledResult(
+                    symbol=r["symbol"],
+                    period_end=_nse_date(r["qe_Date"]),   # "31-MAR-2026"
+                    filing_date=fd,
+                    xbrl_url=xbrl,
+                ))
+            except (KeyError, ValueError):
+                continue
         return out
 
     def fetch_xbrl(self, filed: FiledResult) -> bytes:
