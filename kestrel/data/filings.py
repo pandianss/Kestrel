@@ -52,7 +52,11 @@ from kestrel.data.fundamentals import FundamentalRecord
 
 
 def _nse_date(s: str) -> date:
-    """Parse NSE's 'DD-Mon-YYYY' dates (optionally with a ' HH:MM' time)."""
+    """Parse NSE's 'DD-Mon-YYYY' dates (optionally with a ' HH:MM' time). Raises
+    ValueError on a null/empty value (some integrated-filing rows carry a null
+    date) so a single bad row is skipped, not the whole symbol's feed."""
+    if not s or not s.strip():
+        raise ValueError("empty date")
     return datetime.strptime(s.strip().split(" ")[0], "%d-%b-%Y").date()
 
 

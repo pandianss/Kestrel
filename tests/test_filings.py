@@ -145,6 +145,22 @@ def test_nse_source_merges_legacy_and_integrated_feeds():
     assert got[("X", date(2026, 6, 30))].filing_date == date(2026, 7, 17)
 
 
+def test_integrated_null_date_row_skips_only_that_row():
+    # A null date in ONE integrated row must not discard the whole symbol's feed
+    # (this bug left ~half the universe stuck on the frozen 2024 legacy feed).
+    integrated = [
+        {"symbol": "X", "qe_Date": None, "broadcast_Date": None, "xbrl": "https://x/bad.xml"},
+        {"symbol": "X", "qe_Date": "30-JUN-2026", "broadcast_Date": "17-Jul-2026 19:50:03",
+         "xbrl": "https://x/good.xml"},
+    ]
+
+    def http(url):
+        return json.dumps(integrated if "integrated-filing-results" in url else []).encode()
+
+    got = NSEFilingsSource(http=http).recent(date(2000, 1, 1))
+    assert [f.period_end for f in got] == [date(2026, 6, 30)]   # good row survives
+
+
 def test_ingestion_writes_point_in_time_record(tmp_path):
     from scripts.ingest_fundamentals import ingest
 
