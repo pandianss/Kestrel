@@ -91,6 +91,12 @@ def _mark_done(sym: str) -> None:
 
 
 def _symbols_from_args() -> list[str]:
+    if "--from-archive" in sys.argv:
+        # Rebuild from the raw-filing archive (reprocess with the current parser,
+        # reading originals offline). Symbol list comes from the archive, not the
+        # store, so it works even after the store is cleared for a clean rebuild.
+        raw = Path("data/filings_raw")
+        return sorted(d.name for d in raw.iterdir() if d.is_dir()) if raw.exists() else []
     if "--all" in sys.argv:
         return FundamentalsStore(STORE_ROOT).symbols()
     if "--nifty50" in sys.argv:
@@ -102,7 +108,7 @@ def _symbols_from_args() -> list[str]:
 def main() -> int:
     symbols = _symbols_from_args()
     if not symbols:
-        print("Usage: python scripts/backfill_fundamentals.py SYMBOL [...] | --nifty50 | --all")
+        print("Usage: python scripts/backfill_fundamentals.py SYMBOL [...] | --nifty50 | --all | --from-archive")
         return 2
     getter = make_nse_getter()
     from kestrel.data.filings import NSEFilingsSource

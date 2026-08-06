@@ -402,14 +402,20 @@ def build_record_from_financials(filed: FiledResult, fin: dict[str, float | None
     face_val = float(fin["face_value"]) if fin.get("face_value") is not None else 10.0
     other_eq = float(fin["other_equity"]) if fin.get("other_equity") is not None else None
     
+    # Net worth ONLY from real equity: the total-equity tag (consolidated:
+    # EquityAttributableToOwnersOfParent), or share capital + other equity.
+    # NOT share capital alone — a pure-quarterly filing carries no balance sheet
+    # but still reports PaidUpValueOfEquityShareCapital, and using that as net
+    # worth produced the alternation (ABB Rs 42cr share capital vs Rs 9,339cr
+    # real equity, quarter by quarter). If neither is present, net worth is
+    # simply absent for this filing; ROE/D-E fall back to the latest filing that
+    # actually carries a balance sheet (typically H1 / annual).
     net_worth = None
     if fin.get("equity") is not None:
         net_worth = float(fin["equity"])
     elif eq_cap is not None and other_eq is not None:
         net_worth = eq_cap + other_eq
-    elif eq_cap is not None:
-        net_worth = eq_cap
-        
+
     bvps = 0.0
     if net_worth is not None and eq_cap is not None and eq_cap > 0 and face_val > 0:
         shares = eq_cap / face_val
