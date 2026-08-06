@@ -436,7 +436,9 @@ def build_record_from_financials(filed: FiledResult, fin: dict[str, float | None
     d2e = None
     if total_debt is not None and net_worth is not None and net_worth > 0:
         d2e = total_debt / net_worth
-        
+
+    revenue = float(fin["revenue"]) if fin.get("revenue") is not None else None
+
     return FundamentalRecord(
         symbol=filed.symbol,
         period_end=filed.period_end,
@@ -447,4 +449,5 @@ def build_record_from_financials(filed: FiledResult, fin: dict[str, float | None
         net_worth=net_worth,
         total_debt=total_debt,
         debt_to_equity=d2e,
+        revenue=revenue,
     )

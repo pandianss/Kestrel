@@ -44,6 +44,11 @@ class FundamentalRecord:
     eps_ttm: float                 # trailing-twelve-month earnings per share
     book_value_per_share: float
     roe: float | None = None       # return on equity (quality factor input)
+    net_profit: float | None = None
+    net_worth: float | None = None
+    total_debt: float | None = None
+    debt_to_equity: float | None = None
+    revenue: float | None = None   # revenue from operations, this quarter (not TTM)
 
     def __post_init__(self) -> None:
         if self.publish_date < self.period_end:
