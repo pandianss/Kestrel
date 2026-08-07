@@ -21,7 +21,7 @@ under `data/fundamentals/`, so a new filing is one appended line.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import date
 from pathlib import Path
 
@@ -40,11 +40,18 @@ def _to_json(r: FundamentalRecord) -> str:
     return json.dumps(d, sort_keys=True)
 
 
+_RECORD_FIELDS = {f.name for f in fields(FundamentalRecord)}
+
+
 def _from_json(line: str) -> FundamentalRecord:
     d = json.loads(line)
     d["period_end"] = date.fromisoformat(d["period_end"])
     d["publish_date"] = date.fromisoformat(d["publish_date"])
-    return FundamentalRecord(**d)
+    # Ignore keys the current schema doesn't know: a newer writer may add a field
+    # (e.g. `revenue`) that an older reader still running would otherwise choke on
+    # (FundamentalRecord.__init__ got an unexpected keyword argument). Forward-
+    # compatible read; missing keys just fall back to the field defaults.
+    return FundamentalRecord(**{k: v for k, v in d.items() if k in _RECORD_FIELDS})
 
 
 class FundamentalsStore:
