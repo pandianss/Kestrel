@@ -59,12 +59,26 @@ def load_monthly_prices(symbols: list[str]) -> pd.DataFrame:
 
 
 def build_pit_scores(symbols: list[str], index: pd.DatetimeIndex,
-                     store: FundamentalsStore) -> pd.DataFrame:
-    """Potential score per (month-end, symbol), point-in-time (asof the date)."""
+                     store: FundamentalsStore, prices: pd.DataFrame | None = None,
+                     valuation: bool = False) -> pd.DataFrame:
+    """Potential score per (month-end, symbol), point-in-time (asof the date).
+    With `valuation`, adds the 5th pillar using PIT P/E and P/B from the month-end
+    price and the as-of EPS(TTM) / book value per share."""
     data = {}
     for s in symbols:
         recs = store.records(s)
-        col = [compute_potential_score(analyse(s, recs, asof=dt.date())) for dt in index]
+        col = []
+        for dt in index:
+            t = analyse(s, recs, asof=dt.date())
+            pe = pb = None
+            if valuation and prices is not None:
+                px = prices.at[dt, s] if s in prices.columns else None
+                if px is not None and px == px:            # not NaN
+                    if t.latest_eps and t.latest_eps > 0:
+                        pe = px / t.latest_eps
+                    if t.latest_book_value_per_share and t.latest_book_value_per_share > 0:
+                        pb = px / t.latest_book_value_per_share
+            col.append(compute_potential_score(t, pe=pe, pb=pb))
         data[s] = col
     return pd.DataFrame(data, index=index)
 
@@ -73,6 +87,24 @@ def top_n(n: int):
     def choose(scores_row: pd.Series, tradeable: list[str]) -> set:
         avail = scores_row.reindex(tradeable).dropna()
         return set(avail.sort_values(ascending=False).head(n).index)
+    return choose
+
+
+def top_n_quarterly(n: int):
+    """Rebalance only at quarter-end months (Mar/Jun/Sep/Dec); hold in between.
+    Fundamentals update quarterly, so monthly churn just pays cost for no new
+    information. Holds the prior book, dropping only names no longer tradeable."""
+    held: set = set()
+
+    def choose(scores_row: pd.Series, tradeable: list[str]) -> set:
+        nonlocal held
+        dt = scores_row.name
+        if (dt is not None and dt.month in (3, 6, 9, 12)) or not held:
+            avail = scores_row.reindex(tradeable).dropna()
+            held = set(avail.sort_values(ascending=False).head(n).index)
+        else:
+            held = {s for s in held if s in tradeable}
+        return set(held)
     return choose
 
 
@@ -103,11 +135,16 @@ def main() -> int:
     prices = prices[syms]
     if start:
         prices = prices.loc[start:]
-    print(f"Building point-in-time scores: {len(syms)} names x {len(prices.index)} "
-          f"month-ends (this is the slow part)...")
-    scores = build_pit_scores(syms, prices.index, store)
+    valuation = "--valuation" in sys.argv
+    quarterly = "--quarterly" in sys.argv
+    cfg = (f"{'5-pillar (+valuation)' if valuation else '4-pillar'}, "
+           f"{'quarterly' if quarterly else 'monthly'} rebalance")
+    print(f"Building point-in-time scores [{cfg}]: {len(syms)} names x "
+          f"{len(prices.index)} month-ends (this is the slow part)...")
+    scores = build_pit_scores(syms, prices.index, store, prices=prices, valuation=valuation)
 
-    res = run_backtest(prices, scores, StaticUniverse(syms), top_n(n), capital=1_000_000.0)
+    holdings_fn = top_n_quarterly(n) if quarterly else top_n(n)
+    res = run_backtest(prices, scores, StaticUniverse(syms), holdings_fn, capital=1_000_000.0)
     net = res.net.dropna()
     gross = res.gross.dropna()
     bench = prices.pct_change().mean(axis=1).reindex(net.index)   # equal-weight universe
@@ -116,7 +153,8 @@ def main() -> int:
         return float((1 + r).prod() - 1)
 
     print("\n" + "=" * 66)
-    print(f"  FOUR-PILLAR RANKING BACKTEST — top {n}, monthly, net of costs")
+    print(f"  RANKING BACKTEST — top {n}, net of costs")
+    print(f"  config: {cfg}")
     print("=" * 66)
     print(f"  window: {net.index[0].date()}  to  {net.index[-1].date()}  "
           f"({len(net)} months)")
