@@ -270,6 +270,34 @@ def main() -> int:
     print("  neutral promoter pillar. Directional evidence, not a P&L promise.")
     print("  The active return / IR vs the same pool is the number that survives")
     print("  the survivorship caveat — read that, not the headline CAGR.")
+
+    if "--save" in sys.argv and ps_net and ps_bench:
+        from datetime import datetime
+        eq_s = (1 + net).cumprod()
+        eq_b = (1 + bench.fillna(0)).cumprod().reindex(eq_s.index)
+        out = {
+            "generated": datetime.now().isoformat(timespec="seconds"),
+            "config": cfg + (", PIT NIFTY 500" if pit else (", liquid" if liquid else "")),
+            "window": f"{net.index[0].date()} to {net.index[-1].date()}",
+            "months": len(net), "n": n,
+            "dates": [d.strftime("%Y-%m") for d in eq_s.index],
+            "strategy_equity": [round(float(x), 4) for x in eq_s],
+            "benchmark_equity": [round(float(x), 4) for x in eq_b],
+            "stats": {
+                "strategy": {"cagr": ps_net.cagr, "sharpe": ps_net.sharpe,
+                             "maxdd": ps_net.max_drawdown, "tstat": ps_net.t_stat,
+                             "total": cum(net)},
+                "benchmark": {"cagr": ps_bench.cagr, "sharpe": ps_bench.sharpe,
+                              "maxdd": ps_bench.max_drawdown, "total": cum(bench)},
+                "active": active, "ir": ir,
+                "turnover": float(res.monthly["turnover"].mean()),
+            },
+            "survivorship_biased": bool(res.survivorship_biased),
+            "caveat": ("Delisted-price survivorship remains (Kite serves only live "
+                       "instruments); results modestly flattered."),
+        }
+        Path("data/backtest_results.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+        print("\n  saved -> data/backtest_results.json")
     return 0
 
 

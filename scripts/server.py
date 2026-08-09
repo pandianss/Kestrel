@@ -199,10 +199,29 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _send_html(self, markup: str) -> None:
+        raw = markup.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
         if path in ("/", "/dashboard.html"):
-            self._send_file(DASHBOARD_FILE, "text/html")
+            # Render LIVE from precomputed artifacts (fast, ~0.7s) so the page is
+            # always current — no stale static file. Falls back to the file if the
+            # live render ever fails.
+            try:
+                import importlib
+                import scripts.dashboard as dash
+                importlib.reload(dash)
+                self._send_html(dash.render_live(dash.gather_live(get_system_status())))
+            except Exception:
+                self._send_file(DASHBOARD_FILE, "text/html")
         elif path == "/api/status":
             self._send_json(get_system_status())
         else:
