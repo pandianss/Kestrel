@@ -510,7 +510,7 @@ code {{ background:#151c28; padding:1px 5px; border-radius:4px; font-size:12px; 
  show((location.hash||'#pipeline').slice(1));
  // Soft auto-refresh: reload for fresh data, but never while you're using the
  // Controls tab or typing in a field.
- var btRunning=false;
+ var btRunning=false, btSaw=false;
  setInterval(function(){{
    if(btRunning) return;
    if(location.hash==='#controls') return;
@@ -520,11 +520,11 @@ code {{ background:#151c28; padding:1px 5px; border-radius:4px; font-size:12px; 
  function renderBt(d){{
    var bar=document.getElementById('btbar'), fill=document.getElementById('btfill'), ph=document.getElementById('btphase');
    if(!bar) return;
-   if(d.status==='running'){{ btRunning=true; bar.style.display='block'; fill.style.width=(d.pct||0)+'%';
+   if(d.status==='running'){{ btRunning=true; btSaw=true; bar.style.display='block'; fill.style.width=(d.pct||0)+'%';
      ph.textContent=(d.pct||0)+'% · '+(d.phase||''); }}
-   else if(d.status==='done'){{ btRunning=false; bar.style.display='block'; fill.style.width='100%';
+   else if(d.status==='done' && btSaw){{ btRunning=false; bar.style.display='block'; fill.style.width='100%';
      ph.textContent='done — reloading…'; setTimeout(function(){{location.reload();}},1200); }}
-   else if(d.status==='error'){{ btRunning=false; ph.textContent='error: '+(d.phase||''); }}
+   else if(d.status==='error' && btSaw){{ btRunning=false; ph.textContent='error: '+(d.phase||''); }}
    else {{ btRunning=false; bar.style.display='none'; ph.textContent=''; }}
  }}
  function pollBt(){{ fetch('/api/backtest/progress').then(r=>r.json()).then(function(d){{
