@@ -338,9 +338,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             jobs = {
                 "/api/ranking/refresh": (["scripts/rank_baskets.py"],
                                          "Ranking refresh started (rank_baskets.py)."),
-                "/api/backtest/run": (["scripts/backtest_ranking.py", "--n", "20",
+                "/api/backtest/run": (["scripts/backtest_ranking.py", "--n", "10",
                                        "--pit-universe", "--sector-val", "--quarterly", "--save"],
-                                      "Backtest started (~2-3 min); the Backtest tab updates when done."),
+                                      "Backtest started; the Backtest tab updates when done."),
                 "/api/book/rebalance": (["scripts/mock_trade.py", "--rebalance"],
                                         "Quarterly rebalance started."),
                 "/api/book/exits": (["scripts/mock_trade.py", "--check-exits"],

@@ -107,6 +107,7 @@ def build_pit_scores(symbols: list[str], index: pd.DatetimeIndex,
                      store: FundamentalsStore, prices: pd.DataFrame | None = None,
                      valuation: bool = False, sector_val: bool = False,
                      industry: dict[str, str] | None = None,
+                     momentum: bool = False, mom_w: float = 0.25,
                      progress_cb=None) -> pd.DataFrame:
     """Potential score per (month-end, symbol), point-in-time (asof the date).
     valuation → 5th pillar from absolute P/E,P/B. sector_val → the valuation
@@ -137,6 +138,14 @@ def build_pit_scores(symbols: list[str], index: pd.DatetimeIndex,
         by = pd.DataFrame(by_cols, index=index)
         valdf = _sector_relative_valuation(ey, by, industry)
 
+    # 12-1 price momentum (return over the prior year, skipping the most recent
+    # month to avoid short-term reversal), cross-sectionally percentile-ranked per
+    # date. Blended into the fundamental score with weight `mom_w`.
+    momdf = None
+    if momentum and prices is not None:
+        mom = prices.shift(1) / prices.shift(13) - 1.0
+        momdf = mom.rank(axis=1, pct=True)
+
     # Pass 2: combine.
     data = {}
     for s in symbols:
@@ -145,14 +154,19 @@ def build_pit_scores(symbols: list[str], index: pd.DatetimeIndex,
             t = trends[s][i]
             if valdf is not None:
                 vs = valdf.at[dt, s]
-                col.append(compute_potential_score(t, valuation_score=(vs if vs == vs else None)))
+                sc = compute_potential_score(t, valuation_score=(vs if vs == vs else None))
             elif valuation:
                 ey_v, by_v = ey_cols[s][i], by_cols[s][i]
                 pe = (1.0 / ey_v) if ey_v == ey_v and ey_v > 0 else None
                 pb = (1.0 / by_v) if by_v == by_v and by_v > 0 else None
-                col.append(compute_potential_score(t, pe=pe, pb=pb))
+                sc = compute_potential_score(t, pe=pe, pb=pb)
             else:
-                col.append(compute_potential_score(t))
+                sc = compute_potential_score(t)
+            if momdf is not None:
+                m = momdf.at[dt, s]
+                if m == m:   # not NaN
+                    sc = (1 - mom_w) * sc + mom_w * m
+            col.append(sc)
         data[s] = col
     return pd.DataFrame(data, index=index)
 
@@ -235,9 +249,11 @@ def main() -> int:
     sector_val = "--sector-val" in sys.argv
     valuation = "--valuation" in sys.argv or sector_val
     quarterly = "--quarterly" in sys.argv
+    momentum = "--momentum" in sys.argv
     val_label = ("+sector-relative valuation" if sector_val
                  else "+absolute valuation" if valuation else "no valuation")
-    cfg = (f"{'5-pillar' if valuation else '4-pillar'} ({val_label}), "
+    cfg = (f"{'5-pillar' if valuation else '4-pillar'} ({val_label}"
+           f"{' +momentum' if momentum else ''}), "
            f"{'quarterly' if quarterly else 'monthly'} rebalance")
     industry = _industry_map() if sector_val else None
     print(f"Building point-in-time scores [{cfg}]: {len(syms)} names x "
@@ -245,9 +261,10 @@ def main() -> int:
 
     def _score_progress(i, total):
         _progress(10 + 75 * i / max(total, 1), f"scoring {i}/{total} names")
+    mom_w = float(_arg("--mom-w", "0.25") or 0.25)
     scores = build_pit_scores(syms, prices.index, store, prices=prices,
                               valuation=valuation, sector_val=sector_val, industry=industry,
-                              progress_cb=_score_progress)
+                              momentum=momentum, mom_w=mom_w, progress_cb=_score_progress)
     _progress(88, "running backtest")
 
     base_fn = top_n_quarterly(n) if quarterly else top_n(n)
