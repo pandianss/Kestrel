@@ -226,7 +226,16 @@ def main() -> int:
     scores = build_pit_scores(syms, prices.index, store, prices=prices,
                               valuation=valuation, sector_val=sector_val, industry=industry)
 
-    holdings_fn = top_n_quarterly(n) if quarterly else top_n(n)
+    base_fn = top_n_quarterly(n) if quarterly else top_n(n)
+    holdings_log: dict[str, list[str]] = {}
+
+    def holdings_fn(scores_row, tradeable):
+        picks = base_fn(scores_row, tradeable)
+        dt = getattr(scores_row, "name", None)
+        if dt is not None:
+            holdings_log[dt.strftime("%Y-%m")] = sorted(picks)
+        return picks
+
     if universe is None:
         universe = StaticUniverse(syms)
     res = run_backtest(prices, scores, universe, holdings_fn, capital=1_000_000.0)
@@ -296,6 +305,17 @@ def main() -> int:
             "caveat": ("Delisted-price survivorship remains (Kite serves only live "
                        "instruments); results modestly flattered."),
         }
+        # Trade timeline: the change-points where the book actually turned over
+        # (a name leaving the top-N IS the exit — the strategy exits by rotation).
+        trades, prev = [], set()
+        for m in sorted(holdings_log):
+            cur = set(holdings_log[m])
+            if cur != prev:
+                trades.append({"date": m, "bought": sorted(cur - prev),
+                               "sold": sorted(prev - cur), "n": len(cur)})
+                prev = cur
+        out["trades"] = trades
+        out["current_holdings"] = sorted(prev)
         Path("data/backtest_results.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
         print("\n  saved -> data/backtest_results.json")
     return 0

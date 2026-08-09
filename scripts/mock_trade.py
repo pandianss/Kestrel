@@ -105,6 +105,7 @@ def open_book(capital: float, n: int) -> dict:
             "symbol": sym, "score": round(float(item["potential_score"]), 3),
             "direction": item.get("direction"), "qty": qty,
             "entry_price": fill, "entry_notional": notional, "entry_cost": cost,
+            "peak": fill,          # high-water mark for the trailing stop
         })
 
     invested = round(sum(p["entry_notional"] for p in positions), 2)
@@ -113,13 +114,54 @@ def open_book(capital: float, n: int) -> dict:
     return {
         "created": now,
         "inception_capital": capital, "inception_date": now, "rebalances": 0,
-        "history": [],
+        "history": [], "exits": [],
         "capital": capital, "n_target": n, "n_filled": len(positions),
         "price_source": "yahoo .NS latest close (paper)",
         "universe_gate": "NIFTY 500 (2026-07-25)",
         "invested": invested, "entry_costs": costs, "cash": cash,
         "positions": positions,
     }
+
+
+TRAIL = 0.15   # trailing-stop distance (exit if price falls 15% below its peak)
+
+
+def check_exits(trail: float = TRAIL) -> tuple[dict, int]:
+    """Automated EXIT leg (runs daily): mark each position to the latest close,
+    ratchet its high-water peak, and sell any name that has fallen `trail` below
+    its peak — a trailing stop. Proceeds (net of sell costs) go to cash; the exit
+    is logged with its reason and P&L. This is the exit the paper book was missing
+    — entries are the ranking, rotation is quarterly, and this protects capital in
+    between."""
+    bk = json.loads(PORTFOLIO.read_text(encoding="utf-8"))
+    sell_frac = one_way_cost_fraction("sell", regime_on(date.today()))
+    today = date.today().isoformat()
+    kept, exits = [], bk.get("exits", [])
+    for p in bk["positions"]:
+        px = last_close(p["symbol"])
+        if px is None:
+            kept.append(p); continue
+        peak = max(p.get("peak", p["entry_price"]), px)
+        p["peak"] = peak
+        stop = peak * (1 - trail)
+        if px <= stop:
+            proceeds = p["qty"] * px
+            cost = round(proceeds * sell_frac, 2)
+            bk["cash"] = round(bk["cash"] + proceeds - cost, 2)
+            exits.append({
+                "date": today, "symbol": p["symbol"], "qty": p["qty"],
+                "entry_price": p["entry_price"], "exit_price": round(px, 2),
+                "peak": round(peak, 2),
+                "pnl": round(proceeds - cost - p["entry_notional"], 2),
+                "reason": f"trailing stop (-{trail:.0%} from peak {peak:,.1f})",
+            })
+        else:
+            kept.append(p)
+    exited = len(bk["positions"]) - len(kept)
+    bk["positions"] = kept
+    bk["invested"] = round(sum(q["entry_notional"] for q in kept), 2)
+    bk["exits"] = exits[-50:]
+    return bk, exited
 
 
 def rebalance_book(n: int) -> dict:
@@ -144,6 +186,7 @@ def rebalance_book(n: int) -> dict:
     new["inception_capital"] = old.get("inception_capital", old.get("capital"))
     new["inception_date"] = old.get("inception_date", old.get("created"))
     new["rebalances"] = old.get("rebalances", 0) + 1
+    new["exits"] = old.get("exits", [])              # carry the exit log forward
     new["history"] = old.get("history", []) + [{
         "date": old.get("created"), "equity": equity, "liquidation_costs": round(liq_costs, 2),
     }]
@@ -198,6 +241,22 @@ def main() -> int:
         return 0
 
     n = int(_arg("--n", "10") or 10)
+    if "--check-exits" in sys.argv:
+        if not PORTFOLIO.exists():
+            print("No saved paper book. Open one first (no flags).")
+            return 1
+        bk, exited = check_exits()
+        PORTFOLIO.write_text(json.dumps(bk, indent=2), encoding="utf-8")
+        if exited:
+            for e in bk["exits"][-exited:]:
+                print(f"  EXIT {e['symbol']}: {e['reason']}  P&L Rs {e['pnl']:+,.0f}")
+            print(f"{exited} position(s) stopped out → cash Rs {bk['cash']:,.0f}. "
+                  f"{len(bk['positions'])} still held.")
+        else:
+            print(f"No exits triggered. {len(bk['positions'])} position(s) held; "
+                  f"trailing stop {TRAIL:.0%} below each peak.")
+        return 0
+
     if "--rebalance" in sys.argv:
         if not PORTFOLIO.exists():
             print("No saved paper book to rebalance. Open one first (no flags).")

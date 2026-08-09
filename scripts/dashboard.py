@@ -161,7 +161,8 @@ def gather_live(status: dict | None = None) -> dict:
             incep = bk.get("inception_capital", bk.get("capital", 0)) or 1
             book = {"rows": rows, "equity": equity, "cash": bk.get("cash", 0),
                     "inception": incep, "ret": (equity - incep) / incep,
-                    "rebalances": bk.get("rebalances", 0), "created": bk.get("created")}
+                    "rebalances": bk.get("rebalances", 0), "created": bk.get("created"),
+                    "exits": bk.get("exits", [])}
         except Exception:
             pass
     st["book"] = book
@@ -172,6 +173,10 @@ def gather_live(status: dict | None = None) -> dict:
     # Freshness + pipeline status
     st["fund_latest_q"] = _latest_fundamental_quarter()
     st["price_latest"] = _latest_price_date()
+    st["counts"] = {
+        "fundamentals": len(list(FUND_DIR.glob("*.jsonl"))) if FUND_DIR.exists() else 0,
+        "prices": len(list(KITE_CACHE.glob("*_day.pkl"))) if KITE_CACHE.exists() else 0,
+    }
     if status:   # nested shape from server.get_system_status()
         st["worker_alive"] = (status.get("worker") or {}).get("status") == "RUNNING"
         st["token_valid"] = bool((status.get("token") or {}).get("valid"))
@@ -237,6 +242,38 @@ def _pipeline(st: dict) -> str:
     return f'<div class="badges">{"".join(b)}</div>'
 
 
+def _stage(name: str, ok: bool, lines: list[str]) -> str:
+    dot = "up" if ok else "down"
+    body = "".join(f'<div class="sline">{html.escape(x)}</div>' for x in lines)
+    return (f'<div class="stage"><div class="shead"><span class="sdot {dot}">●</span>'
+            f'<span class="sname">{html.escape(name)}</span></div>{body}</div>')
+
+
+def _pipeline_detail(st: dict) -> str:
+    c = st.get("counts", {})
+    stages = [
+        _stage("Fundamentals", st["worker_alive"], [
+            f'worker {"running" if st["worker_alive"] else "stopped"} · latest quarter {st["fund_latest_q"] or "—"}',
+            f'{c.get("fundamentals", 0):,} companies · source: NSE results (legacy + Integrated Filing)',
+        ]),
+        _stage("Prices", bool(st["price_latest"]), [
+            f'latest candle {st["price_latest"] or "—"} · {c.get("prices", 0):,} instruments',
+            f'source: Kite daily OHLCV{" · token valid" if st["token_valid"] else " · token expired (re-mint AM)"}',
+        ]),
+        _stage("Ranking", st["ranking_counts"][0] > 0, [
+            f'built {_age(st["ranking_at"])} · {st["ranking_counts"][0]:,} tradeable / {st["ranking_counts"][1]:,} total',
+            'score: 5-pillar (EPS trend · ROE · D/E · promoter · sector-relative valuation)',
+        ]),
+        _stage("Paper book", st["book"] is not None, [
+            (f'equity ₹{st["book"]["equity"]:,.0f} · {st["book"]["ret"]*100:+.1f}% since inception'
+             if st["book"] else 'not opened') + (f' · rebalance #{st["book"]["rebalances"]}' if st["book"] else ''),
+            'quarterly rebalance + daily stop/target exit checks',
+        ]),
+    ]
+    return (f'<p class="muted">The on-host data plane, most-upstream first. Everything stays local (G-15).</p>'
+            f'<div class="stages">{"".join(stages)}</div>')
+
+
 def _leaderboard(st: dict) -> str:
     rows = []
     for i in st["ranking"]:
@@ -266,19 +303,36 @@ def _paper(st: dict) -> str:
         pnl = p["pnl"]; pct = 100 * pnl / p["entry_notional"] if p["entry_notional"] else 0
         cls = "up" if pnl >= 0 else "down"
         now_px = f'{p["now_px"]:,.1f}' if p["now_px"] else "—"
+        peak = p.get("peak", p["entry_price"])
+        stop = peak * (1 - 0.15)
+        near = p["now_px"] and p["now_px"] <= stop * 1.05   # within 5% of the stop
         rows.append(f'''<tr><td class="sym">{html.escape(p["symbol"])}</td><td class="num">{p["qty"]}</td>
           <td class="num">{p["entry_price"]:,.1f}</td><td class="num">{now_px}</td>
+          <td class="num {'down' if near else 'muted-c'}">{stop:,.1f}</td>
           <td class="num">{p["value"]:,.0f}</td><td class="num {cls}">{pnl:+,.0f} ({pct:+.1f}%)</td></tr>''')
     rc = f'· rebalance #{bk["rebalances"]}' if bk["rebalances"] else ""
     tot_cls = "up" if bk["ret"] >= 0 else "down"
-    return f'''<p class="muted">₹1L paper book, marked to the latest Kite close (offline). Quarterly rebalance {rc}.</p>
+    exits = bk.get("exits") or []
+    exlog = ""
+    if exits:
+        er = "".join(
+            f'<tr><td class="sym">{html.escape(e["date"])}</td><td class="sym">{html.escape(e["symbol"])}</td>'
+            f'<td>{html.escape(e["reason"])}</td>'
+            f'<td class="num {"up" if e["pnl"]>=0 else "down"}">{e["pnl"]:+,.0f}</td></tr>'
+            for e in reversed(exits[-12:]))
+        exlog = (f'<h3 class="h3">Exits (trailing stop)</h3>'
+                 f'<table class="grid"><thead><tr><th>Date</th><th>Symbol</th><th>Reason</th><th>P&L</th></tr></thead>'
+                 f'<tbody>{er}</tbody></table>')
+    return f'''<p class="muted">₹1L paper book, marked to the latest Kite close (offline). Quarterly rebalance {rc};
+      daily trailing-stop exit at 15% below each name's peak (the <em>Stop</em> column).</p>
       <div class="statrow">
         <div class="stat"><div class="sv">₹{bk["equity"]:,.0f}</div><div class="sl">equity</div></div>
         <div class="stat"><div class="sv {tot_cls}">{bk["ret"]*100:+.1f}%</div><div class="sl">since inception ₹{bk["inception"]:,.0f}</div></div>
         <div class="stat"><div class="sv">₹{bk["cash"]:,.0f}</div><div class="sl">cash</div></div>
       </div>
-      <table class="grid"><thead><tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Now</th><th>Value</th><th>P&L</th></tr></thead>
-      <tbody>{"".join(rows)}</tbody></table>'''
+      <table class="grid"><thead><tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Now</th><th>Stop</th><th>Value</th><th>P&L</th></tr></thead>
+      <tbody>{"".join(rows)}</tbody></table>
+      {exlog}'''
 
 
 def _backtest(st: dict) -> str:
@@ -301,11 +355,37 @@ def _backtest(st: dict) -> str:
         <div class="stat"><div class="sv">{bt["stats"]["turnover"]*100:.0f}%</div><div class="sl">turnover / mo</div></div>
       </div>
       <table class="grid narrow"><thead><tr><th></th><th>Strategy</th><th>Benchmark</th></tr></thead><tbody>{tbl}</tbody></table>
+      {_backtest_trades(bt)}
       <p class="caveat">⚠️ {html.escape(bt.get("caveat",""))} Point-in-time membership + costs applied; not a P&L promise.</p>'''
 
 
+def _chips(syms: list[str]) -> str:
+    return "".join(f'<span class="chip">{html.escape(s)}</span>' for s in syms)
+
+
+def _backtest_trades(bt: dict) -> str:
+    trades = bt.get("trades") or []
+    if not trades:
+        return ""
+    held = bt.get("current_holdings") or []
+    # most recent rebalances first (each is a change-point: names bought/sold)
+    rows = []
+    for t in reversed(trades):
+        rows.append(
+            f'<tr><td class="sym">{html.escape(t["date"])}</td>'
+            f'<td class="chipcell">{_chips(t["bought"]) or "—"}</td>'
+            f'<td class="chipcell sold">{_chips(t["sold"]) or "—"}</td>'
+            f'<td class="num">{t["n"]}</td></tr>')
+    return f'''<h3 class="h3">Holdings &amp; trades over time</h3>
+      <p class="muted">The book rebalances quarterly; a name leaving the top-N <em>is</em> the exit
+      (the strategy exits by rotation). {len(trades)} rebalances in this run. Current book:</p>
+      <div class="chips">{_chips(held)}</div>
+      <table class="grid trades"><thead><tr><th>Rebalance</th><th>Bought (entered)</th><th>Sold (exited)</th><th>#held</th></tr></thead>
+      <tbody>{"".join(rows)}</tbody></table>'''
+
+
 def render_live(st: dict) -> str:
-    tabs = [("pipeline", "Pipeline", _pipeline(st)),
+    tabs = [("pipeline", "Pipeline", _pipeline_detail(st)),
             ("leaderboard", "Leaderboard", _leaderboard(st)),
             ("paper", "Paper Book", _paper(st)),
             ("backtest", "Backtest", _backtest(st))]
@@ -344,7 +424,7 @@ table.grid {{ width:100%; border-collapse:collapse; font-size:13px; }}
 .grid.narrow {{ max-width:360px; }}
 .barcell {{ width:40%; }} .bar {{ background:#141b26; border-radius:6px; height:9px; overflow:hidden; }}
 .bar span {{ display:block; height:100%; background:var(--bar); }}
-.up {{ color:var(--up); }} .down {{ color:var(--down); }} .flat {{ color:var(--muted); }}
+.up {{ color:var(--up); }} .down {{ color:var(--down); }} .flat {{ color:var(--muted); }} .muted-c {{ color:var(--muted); }}
 .statrow {{ display:flex; gap:22px; margin:14px 0; flex-wrap:wrap; }}
 .stat .sv {{ font-size:22px; font-weight:700; }} .stat .sl {{ color:var(--muted); font-size:12px; }}
 .equity {{ width:100%; height:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; }}
@@ -356,6 +436,18 @@ table.grid {{ width:100%; border-collapse:collapse; font-size:13px; }}
 .legend .k.strat {{ background:var(--accent); }} .legend .k.bench {{ background:#5b6675; }}
 .caveat {{ color:var(--muted); font-size:12px; margin-top:12px; }}
 code {{ background:#151c28; padding:1px 5px; border-radius:4px; font-size:12px; }}
+.stages {{ display:flex; flex-direction:column; gap:10px; }}
+.stage {{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }}
+.shead {{ display:flex; align-items:center; gap:8px; margin-bottom:4px; }}
+.sdot {{ font-size:10px; }} .sdot.up {{ color:var(--up); }} .sdot.down {{ color:var(--down); }}
+.sname {{ font-weight:600; }} .sline {{ color:var(--muted); font-size:12.5px; }}
+.h3 {{ font-size:14px; margin:22px 0 4px; }}
+.chips {{ display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 14px; }}
+.chip {{ background:#141b26; border:1px solid var(--line); border-radius:5px; padding:2px 7px;
+  font-size:11.5px; font-weight:600; }}
+.chipcell {{ }} .chipcell .chip {{ background:#12241a; border-color:#1d3b2a; }}
+.chipcell.sold .chip {{ background:#251518; border-color:#4a2020; color:#f0a3a0; }}
+.grid.trades td {{ vertical-align:top; }} .grid.trades th:nth-child(4) {{ text-align:right; }}
 </style></head><body><div class="wrap">
 <header>
   <h1><span class="dot">◆</span> Kestrel <span style="color:var(--muted);font-weight:400">Research</span></h1>
