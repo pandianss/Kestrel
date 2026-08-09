@@ -274,6 +274,31 @@ def _pipeline_detail(st: dict) -> str:
             f'<div class="stages">{"".join(stages)}</div>')
 
 
+def _controls(st: dict) -> str:
+    tok = "valid" if st["token_valid"] else "expired"
+    tcls = "ok" if st["token_valid"] else "bad"
+    def b(action, label, danger=False):
+        return f'<button class="btn{" danger" if danger else ""}" onclick="post(\'{action}\')">{label}</button>'
+    return f'''<p class="muted">Run the pipeline by hand. Jobs launch in the background; the page reflects results on its next refresh (auto-refresh pauses while this tab is open).</p>
+      <div class="ctlgrid">
+        <div class="ctlcard"><h4>Session <span class="badge {tcls}" style="margin-left:6px"><span class="bval">{tok}</span></span></h4>
+          {b("/api/login/start", "Launch login window")}
+          <div class="mintrow"><input id="redir" placeholder="paste Kite redirect URL / request_token">
+            <button class="btn" onclick="mint()">Mint token</button></div>
+          <div class="hint">Login needs your Zerodha 2FA in a browser (G-12); the token expires ~06:00 IST daily.</div>
+        </div>
+        <div class="ctlcard"><h4>Data workers</h4>
+          {b("/api/worker/start", "Start fundamentals worker")}{b("/api/worker/stop", "Stop", True)}
+          {b("/api/history/start", "Harvest prices (Kite)")}{b("/api/relations/harvest", "Harvest relations")}
+        </div>
+        <div class="ctlcard"><h4>Signal &amp; book</h4>
+          {b("/api/ranking/refresh", "Refresh ranking")}{b("/api/backtest/run", "Run backtest")}
+          {b("/api/book/rebalance", "Rebalance book")}{b("/api/book/exits", "Check exits")}
+        </div>
+      </div>
+      <div id="ctlmsg" class="ctlmsg" role="status"></div>'''
+
+
 def _leaderboard(st: dict) -> str:
     rows = []
     for i in st["ranking"]:
@@ -388,12 +413,13 @@ def render_live(st: dict) -> str:
     tabs = [("pipeline", "Pipeline", _pipeline_detail(st)),
             ("leaderboard", "Leaderboard", _leaderboard(st)),
             ("paper", "Paper Book", _paper(st)),
-            ("backtest", "Backtest", _backtest(st))]
+            ("backtest", "Backtest", _backtest(st)),
+            ("controls", "Controls", _controls(st))]
     nav = "".join(f'<button class="tab" data-t="{k}">{lbl}</button>' for k, lbl, _ in tabs)
     panes = "".join(f'<section class="pane" id="p-{k}">{body}</section>' for k, _, body in tabs)
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="45"><title>Kestrel — Research</title>
+<title>Kestrel — Research</title>
 <style>
 :root {{ --bg:#0a0e14; --panel:#111722; --line:#1e2836; --fg:#e6edf3; --muted:#7d8998;
   --accent:#39d3c3; --up:#3fb950; --down:#f85149; --bar:#39d3c3; }}
@@ -448,6 +474,17 @@ code {{ background:#151c28; padding:1px 5px; border-radius:4px; font-size:12px; 
 .chipcell {{ }} .chipcell .chip {{ background:#12241a; border-color:#1d3b2a; }}
 .chipcell.sold .chip {{ background:#251518; border-color:#4a2020; color:#f0a3a0; }}
 .grid.trades td {{ vertical-align:top; }} .grid.trades th:nth-child(4) {{ text-align:right; }}
+.ctlgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; }}
+.ctlcard {{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }}
+.ctlcard h4 {{ margin:0 0 10px; font-size:13px; }}
+.btn {{ background:#182234; color:var(--fg); border:1px solid var(--line); border-radius:7px;
+  padding:7px 11px; margin:0 6px 8px 0; cursor:pointer; font-size:13px; }}
+.btn:hover {{ border-color:var(--accent); }} .btn.danger:hover {{ border-color:var(--down); }}
+.mintrow {{ display:flex; gap:6px; margin:4px 0; }}
+.mintrow input {{ flex:1; background:#0c121b; border:1px solid var(--line); border-radius:7px;
+  color:var(--fg); padding:7px 9px; font-size:12px; }}
+.hint {{ color:var(--muted); font-size:11.5px; margin-top:6px; }}
+.ctlmsg {{ margin-top:14px; color:var(--accent); font-size:13px; min-height:18px; }}
 </style></head><body><div class="wrap">
 <header>
   <h1><span class="dot">◆</span> Kestrel <span style="color:var(--muted);font-weight:400">Research</span></h1>
@@ -467,6 +504,23 @@ code {{ background:#151c28; padding:1px 5px; border-radius:4px; font-size:12px; 
    panes.forEach(p=>p.classList.toggle('on',p.id==='p-'+k)); location.hash=k; }}
  tabs.forEach(t=>t.addEventListener('click',()=>show(t.dataset.t)));
  show((location.hash||'#pipeline').slice(1));
+ // Soft auto-refresh: reload for fresh data, but never while you're using the
+ // Controls tab or typing in a field.
+ setInterval(function(){{
+   if(location.hash==='#controls') return;
+   if(document.activeElement && document.activeElement.tagName==='INPUT') return;
+   location.reload();
+ }}, 45000);
+ function post(url, body){{
+   var m=document.getElementById('ctlmsg'); if(m) m.textContent='working…';
+   fetch(url,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:body?JSON.stringify(body):null}})
+     .then(r=>r.json()).then(d=>{{ if(m) m.textContent=(d.ok?'✓ ':'✗ ')+(d.message||d.error||''); }})
+     .catch(e=>{{ if(m) m.textContent='✗ '+e; }});
+ }}
+ function mint(){{ var r=document.getElementById('redir').value.trim();
+   var m=document.getElementById('ctlmsg');
+   if(!r){{ if(m) m.textContent='Paste the Kite redirect URL first.'; return; }}
+   post('/api/token/mint',{{redirect:r}}); }}
 </script></body></html>'''
 
 

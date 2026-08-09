@@ -324,6 +324,32 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, 500)
 
+        elif path in ("/api/ranking/refresh", "/api/backtest/run",
+                      "/api/book/rebalance", "/api/book/exits"):
+            # Fire-and-forget background jobs; the live dashboard reflects the
+            # updated artifacts (ranking / backtest / paper book) on its next refresh.
+            jobs = {
+                "/api/ranking/refresh": (["scripts/rank_baskets.py"],
+                                         "Ranking refresh started (rank_baskets.py)."),
+                "/api/backtest/run": (["scripts/backtest_ranking.py", "--n", "20",
+                                       "--pit-universe", "--sector-val", "--quarterly", "--save"],
+                                      "Backtest started (~2-3 min); the Backtest tab updates when done."),
+                "/api/book/rebalance": (["scripts/mock_trade.py", "--rebalance"],
+                                        "Quarterly rebalance started."),
+                "/api/book/exits": (["scripts/mock_trade.py", "--check-exits"],
+                                    "Trailing-stop exit check started."),
+            }
+            argv, msg = jobs[path]
+            try:
+                flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                (REPO_ROOT / "logs").mkdir(exist_ok=True)
+                log = open(REPO_ROOT / "logs" / (Path(argv[0]).stem + ".out.log"), "ab")
+                subprocess.Popen([sys.executable, *argv], cwd=str(REPO_ROOT),
+                                 stdout=log, stderr=log, creationflags=flags)
+                self._send_json({"ok": True, "message": msg})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, 500)
+
         else:
             self.send_error(404, "Unknown POST endpoint")
 
