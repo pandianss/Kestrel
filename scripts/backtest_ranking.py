@@ -175,15 +175,37 @@ def _liquid_universe() -> set[str]:
 
 
 def main() -> int:
+    import json
+    from datetime import date as _date
+
+    from kestrel.data.universe import PointInTimeUniverse
     n = int(_arg("--n", "20") or 20)
     start = _arg("--start")
     liquid = "--liquid" in sys.argv
+    pit = "--pit-universe" in sys.argv
     store = FundamentalsStore("data/fundamentals")
     price_syms = {p.stem[:-4] for p in KD.glob("*_day.pkl")}
     syms = sorted(set(store.symbols()) & price_syms)
-    if liquid:
+
+    universe = None
+    residual_note = ""
+    if pit:
+        raw = json.loads(Path("data/snapshots/nifty500_membership.json").read_text(encoding="utf-8"))
+        membership = {_date.fromisoformat(k): v for k, v in raw.items()}
+        ever = {s for v in membership.values() for s in v}
+        syms = sorted(ever & price_syms & set(store.symbols()))
+        no_price = sorted(ever - price_syms)   # ex-members we can't price (delisted/unavailable)
+        universe = PointInTimeUniverse(membership)
+        residual_note = (f"  PIT membership: {len(membership)} dated snapshots "
+                         f"({min(membership)}..{max(membership)}), {len(ever)} ever-members.\n"
+                         f"  RESIDUAL survivorship: {len(no_price)} ever-members have no price "
+                         f"(delisted/unavailable) — silently excluded. Membership look-ahead FIXED;\n"
+                         f"  delisted-price survivorship NOT (Kite only serves live instruments, G-43).")
+        print(f"[PIT universe: {len(syms)} names with price+fundamentals from "
+              f"{len(ever)} ever-members]")
+    elif liquid:
         syms = sorted(set(syms) & _liquid_universe())
-        print(f"[liquidity gate: NIFTY 500 -> {len(syms)} names]")
+        print(f"[liquidity gate: NIFTY 500 (today) -> {len(syms)} names]")
     print(f"Universe: {len(syms)} names with both price and fundamentals. "
           f"Loading prices...")
     prices = load_monthly_prices(syms)
@@ -205,7 +227,9 @@ def main() -> int:
                               valuation=valuation, sector_val=sector_val, industry=industry)
 
     holdings_fn = top_n_quarterly(n) if quarterly else top_n(n)
-    res = run_backtest(prices, scores, StaticUniverse(syms), holdings_fn, capital=1_000_000.0)
+    if universe is None:
+        universe = StaticUniverse(syms)
+    res = run_backtest(prices, scores, universe, holdings_fn, capital=1_000_000.0)
     net = res.net.dropna()
     gross = res.gross.dropna()
     bench = prices.pct_change().mean(axis=1).reindex(net.index)   # equal-weight universe
@@ -221,6 +245,8 @@ def main() -> int:
           f"({len(net)} months)")
     print(f"  survivorship-biased universe: {res.survivorship_biased}  "
           f"(delisted names absent — results flatter than reality)")
+    if residual_note:
+        print(residual_note)
     print(f"  smallest tradeable cross-section: {res.min_cross_section}   "
           f"missing marks: {res.missing_marks}")
     print("-" * 66)
