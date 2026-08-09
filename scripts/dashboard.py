@@ -292,8 +292,10 @@ def _controls(st: dict) -> str:
           {b("/api/history/start", "Harvest prices (Kite)")}{b("/api/relations/harvest", "Harvest relations")}
         </div>
         <div class="ctlcard"><h4>Signal &amp; book</h4>
-          {b("/api/ranking/refresh", "Refresh ranking")}{b("/api/backtest/run", "Run backtest")}
+          {b("/api/ranking/refresh", "Refresh ranking")}<button class="btn" onclick="runBacktest()">Run backtest</button>
           {b("/api/book/rebalance", "Rebalance book")}{b("/api/book/exits", "Check exits")}
+          <div id="btbar" class="btbar"><div id="btfill" class="btfill"></div></div>
+          <div id="btphase" class="hint"></div>
         </div>
       </div>
       <div id="ctlmsg" class="ctlmsg" role="status"></div>'''
@@ -485,6 +487,8 @@ code {{ background:#151c28; padding:1px 5px; border-radius:4px; font-size:12px; 
   color:var(--fg); padding:7px 9px; font-size:12px; }}
 .hint {{ color:var(--muted); font-size:11.5px; margin-top:6px; }}
 .ctlmsg {{ margin-top:14px; color:var(--accent); font-size:13px; min-height:18px; }}
+.btbar {{ display:none; height:8px; background:#141b26; border-radius:6px; overflow:hidden; margin:10px 0 4px; }}
+.btfill {{ height:100%; width:0; background:var(--accent); transition:width .4s ease; }}
 </style></head><body><div class="wrap">
 <header>
   <h1><span class="dot">◆</span> Kestrel <span style="color:var(--muted);font-weight:400">Research</span></h1>
@@ -506,11 +510,31 @@ code {{ background:#151c28; padding:1px 5px; border-radius:4px; font-size:12px; 
  show((location.hash||'#pipeline').slice(1));
  // Soft auto-refresh: reload for fresh data, but never while you're using the
  // Controls tab or typing in a field.
+ var btRunning=false;
  setInterval(function(){{
+   if(btRunning) return;
    if(location.hash==='#controls') return;
    if(document.activeElement && document.activeElement.tagName==='INPUT') return;
    location.reload();
  }}, 45000);
+ function renderBt(d){{
+   var bar=document.getElementById('btbar'), fill=document.getElementById('btfill'), ph=document.getElementById('btphase');
+   if(!bar) return;
+   if(d.status==='running'){{ btRunning=true; bar.style.display='block'; fill.style.width=(d.pct||0)+'%';
+     ph.textContent=(d.pct||0)+'% · '+(d.phase||''); }}
+   else if(d.status==='done'){{ btRunning=false; bar.style.display='block'; fill.style.width='100%';
+     ph.textContent='done — reloading…'; setTimeout(function(){{location.reload();}},1200); }}
+   else if(d.status==='error'){{ btRunning=false; ph.textContent='error: '+(d.phase||''); }}
+   else {{ btRunning=false; bar.style.display='none'; ph.textContent=''; }}
+ }}
+ function pollBt(){{ fetch('/api/backtest/progress').then(r=>r.json()).then(function(d){{
+   renderBt(d); if(d.status==='running') setTimeout(pollBt,1500); }}).catch(function(){{}}); }}
+ function runBacktest(){{ var m=document.getElementById('ctlmsg'); if(m) m.textContent='starting backtest…';
+   fetch('/api/backtest/run',{{method:'POST'}}).then(r=>r.json()).then(function(d){{
+     if(m) m.textContent=(d.ok?'✓ ':'✗ ')+(d.message||d.error||'');
+     if(d.ok){{ btRunning=true; pollBt(); }} }})
+     .catch(function(){{ if(m) m.textContent='✗ Cannot reach the local server. Open http://localhost:8000 in your browser.'; }}); }}
+ pollBt();   // resume the bar if a backtest is already running
  function post(url, body){{
    var m=document.getElementById('ctlmsg'); if(m) m.textContent='working…';
    fetch(url,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:body?JSON.stringify(body):null}})

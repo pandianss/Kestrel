@@ -21,8 +21,10 @@ Caveats surfaced honestly:
 """
 from __future__ import annotations
 
+import json
 import pickle
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -39,6 +41,19 @@ from kestrel.data.fundamentals_store import FundamentalsStore
 from kestrel.data.universe import StaticUniverse
 
 KD = Path("data/cache/kite")
+PROGRESS = Path("data/backtest_progress.json")
+
+
+def _progress(pct: float, phase: str, status: str = "running") -> None:
+    """Write a small progress heartbeat the dashboard can poll while this runs."""
+    try:
+        PROGRESS.parent.mkdir(parents=True, exist_ok=True)
+        PROGRESS.write_text(json.dumps({
+            "status": status, "pct": round(pct), "phase": phase,
+            "updated": datetime.now().isoformat(timespec="seconds"),
+        }), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _arg(flag, default=None):
@@ -91,7 +106,8 @@ def _sector_relative_valuation(ey: pd.DataFrame, by: pd.DataFrame,
 def build_pit_scores(symbols: list[str], index: pd.DatetimeIndex,
                      store: FundamentalsStore, prices: pd.DataFrame | None = None,
                      valuation: bool = False, sector_val: bool = False,
-                     industry: dict[str, str] | None = None) -> pd.DataFrame:
+                     industry: dict[str, str] | None = None,
+                     progress_cb=None) -> pd.DataFrame:
     """Potential score per (month-end, symbol), point-in-time (asof the date).
     valuation → 5th pillar from absolute P/E,P/B. sector_val → the valuation
     pillar is instead a within-industry cheapness rank (needs `industry`)."""
@@ -99,7 +115,9 @@ def build_pit_scores(symbols: list[str], index: pd.DatetimeIndex,
     trends: dict[str, list] = {}
     ey_cols: dict[str, list] = {}
     by_cols: dict[str, list] = {}
-    for s in symbols:
+    for idx, s in enumerate(symbols):
+        if progress_cb and idx % 20 == 0:
+            progress_cb(idx, len(symbols))
         recs = store.records(s)
         tl, eyl, byl = [], [], []
         for dt in index:
@@ -206,6 +224,7 @@ def main() -> int:
     elif liquid:
         syms = sorted(set(syms) & _liquid_universe())
         print(f"[liquidity gate: NIFTY 500 (today) -> {len(syms)} names]")
+    _progress(4, "loading prices")
     print(f"Universe: {len(syms)} names with both price and fundamentals. "
           f"Loading prices...")
     prices = load_monthly_prices(syms)
@@ -223,8 +242,13 @@ def main() -> int:
     industry = _industry_map() if sector_val else None
     print(f"Building point-in-time scores [{cfg}]: {len(syms)} names x "
           f"{len(prices.index)} month-ends (this is the slow part)...")
+
+    def _score_progress(i, total):
+        _progress(10 + 75 * i / max(total, 1), f"scoring {i}/{total} names")
     scores = build_pit_scores(syms, prices.index, store, prices=prices,
-                              valuation=valuation, sector_val=sector_val, industry=industry)
+                              valuation=valuation, sector_val=sector_val, industry=industry,
+                              progress_cb=_score_progress)
+    _progress(88, "running backtest")
 
     base_fn = top_n_quarterly(n) if quarterly else top_n(n)
     holdings_log: dict[str, list[str]] = {}
@@ -316,10 +340,18 @@ def main() -> int:
                 prev = cur
         out["trades"] = trades
         out["current_holdings"] = sorted(prev)
+        _progress(96, "saving results")
         Path("data/backtest_results.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
         print("\n  saved -> data/backtest_results.json")
+    _progress(100, "done", "done")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception as e:   # surface a crash to the dashboard progress poll
+        _progress(100, f"error: {e}", "error")
+        raise

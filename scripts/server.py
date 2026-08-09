@@ -224,6 +224,13 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 self._send_file(DASHBOARD_FILE, "text/html")
         elif path == "/api/status":
             self._send_json(get_system_status())
+        elif path == "/api/backtest/progress":
+            p = REPO_ROOT / "data/backtest_progress.json"
+            try:
+                self._send_json(json.loads(p.read_text(encoding="utf-8")) if p.exists()
+                                else {"status": "idle"})
+            except Exception:
+                self._send_json({"status": "idle"})
         else:
             self.send_error(404, "Not Found")
 
@@ -340,6 +347,13 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                                     "Trailing-stop exit check started."),
             }
             argv, msg = jobs[path]
+            if path == "/api/backtest/run":   # seed progress so the bar shows instantly
+                try:
+                    (REPO_ROOT / "data/backtest_progress.json").write_text(
+                        json.dumps({"status": "running", "pct": 0, "phase": "starting…"}),
+                        encoding="utf-8")
+                except Exception:
+                    pass
             try:
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 (REPO_ROOT / "logs").mkdir(exist_ok=True)
