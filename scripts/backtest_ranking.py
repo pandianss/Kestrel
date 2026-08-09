@@ -58,27 +58,83 @@ def load_monthly_prices(symbols: list[str]) -> pd.DataFrame:
     return px.resample("ME").last()   # month-end close panel
 
 
+def _industry_map() -> dict[str, str]:
+    """Symbol -> industry, from the NIFTY 500 constituents snapshot (has an
+    Industry column for every liquid name)."""
+    p = Path("data/snapshots/constituents_nifty500/2026-07-25/data.csv")
+    lines = p.read_text(encoding="utf-8").splitlines()
+    hdr = lines[0].split(",")
+    si, ii = hdr.index("Symbol"), hdr.index("Industry")
+    out = {}
+    for ln in lines[1:]:
+        parts = ln.split(",")
+        if len(parts) > max(si, ii):
+            out[parts[si].strip()] = parts[ii].strip()
+    return out
+
+
+def _sector_relative_valuation(ey: pd.DataFrame, by: pd.DataFrame,
+                               industry: dict[str, str]) -> pd.DataFrame:
+    """Per date, rank each name's cheapness WITHIN its industry (percentile of
+    earnings-yield and book-yield among sector peers that date; higher = cheaper).
+    Returns a [date x symbol] valuation score in 0..1 (NaN where no peers/data)."""
+    ind = pd.Series({s: industry.get(s, "?") for s in ey.columns})
+    out = pd.DataFrame(index=ey.index, columns=ey.columns, dtype=float)
+    for dt in ey.index:
+        df = pd.DataFrame({"ey": ey.loc[dt], "by": by.loc[dt], "ind": ind})
+        eyr = df.groupby("ind")["ey"].rank(pct=True)
+        byr = df.groupby("ind")["by"].rank(pct=True)
+        out.loc[dt] = pd.concat([eyr, byr], axis=1).mean(axis=1)
+    return out
+
+
 def build_pit_scores(symbols: list[str], index: pd.DatetimeIndex,
                      store: FundamentalsStore, prices: pd.DataFrame | None = None,
-                     valuation: bool = False) -> pd.DataFrame:
+                     valuation: bool = False, sector_val: bool = False,
+                     industry: dict[str, str] | None = None) -> pd.DataFrame:
     """Potential score per (month-end, symbol), point-in-time (asof the date).
-    With `valuation`, adds the 5th pillar using PIT P/E and P/B from the month-end
-    price and the as-of EPS(TTM) / book value per share."""
-    data = {}
+    valuation → 5th pillar from absolute P/E,P/B. sector_val → the valuation
+    pillar is instead a within-industry cheapness rank (needs `industry`)."""
+    # Pass 1: cache the as-of Trend and the two yields per (symbol, date).
+    trends: dict[str, list] = {}
+    ey_cols: dict[str, list] = {}
+    by_cols: dict[str, list] = {}
     for s in symbols:
         recs = store.records(s)
-        col = []
+        tl, eyl, byl = [], [], []
         for dt in index:
             t = analyse(s, recs, asof=dt.date())
-            pe = pb = None
-            if valuation and prices is not None:
-                px = prices.at[dt, s] if s in prices.columns else None
-                if px is not None and px == px:            # not NaN
-                    if t.latest_eps and t.latest_eps > 0:
-                        pe = px / t.latest_eps
-                    if t.latest_book_value_per_share and t.latest_book_value_per_share > 0:
-                        pb = px / t.latest_book_value_per_share
-            col.append(compute_potential_score(t, pe=pe, pb=pb))
+            tl.append(t)
+            px = prices.at[dt, s] if (prices is not None and s in prices.columns) else None
+            ok = px is not None and px == px and px > 0
+            eyl.append((t.latest_eps / px) if (ok and t.latest_eps is not None) else float("nan"))
+            byl.append((t.latest_book_value_per_share / px)
+                       if (ok and t.latest_book_value_per_share and t.latest_book_value_per_share > 0)
+                       else float("nan"))
+        trends[s], ey_cols[s], by_cols[s] = tl, eyl, byl
+
+    valdf = None
+    if sector_val and industry is not None:
+        ey = pd.DataFrame(ey_cols, index=index)
+        by = pd.DataFrame(by_cols, index=index)
+        valdf = _sector_relative_valuation(ey, by, industry)
+
+    # Pass 2: combine.
+    data = {}
+    for s in symbols:
+        col = []
+        for i, dt in enumerate(index):
+            t = trends[s][i]
+            if valdf is not None:
+                vs = valdf.at[dt, s]
+                col.append(compute_potential_score(t, valuation_score=(vs if vs == vs else None)))
+            elif valuation:
+                ey_v, by_v = ey_cols[s][i], by_cols[s][i]
+                pe = (1.0 / ey_v) if ey_v == ey_v and ey_v > 0 else None
+                pb = (1.0 / by_v) if by_v == by_v and by_v > 0 else None
+                col.append(compute_potential_score(t, pe=pe, pb=pb))
+            else:
+                col.append(compute_potential_score(t))
         data[s] = col
     return pd.DataFrame(data, index=index)
 
@@ -135,13 +191,18 @@ def main() -> int:
     prices = prices[syms]
     if start:
         prices = prices.loc[start:]
-    valuation = "--valuation" in sys.argv
+    sector_val = "--sector-val" in sys.argv
+    valuation = "--valuation" in sys.argv or sector_val
     quarterly = "--quarterly" in sys.argv
-    cfg = (f"{'5-pillar (+valuation)' if valuation else '4-pillar'}, "
+    val_label = ("+sector-relative valuation" if sector_val
+                 else "+absolute valuation" if valuation else "no valuation")
+    cfg = (f"{'5-pillar' if valuation else '4-pillar'} ({val_label}), "
            f"{'quarterly' if quarterly else 'monthly'} rebalance")
+    industry = _industry_map() if sector_val else None
     print(f"Building point-in-time scores [{cfg}]: {len(syms)} names x "
           f"{len(prices.index)} month-ends (this is the slow part)...")
-    scores = build_pit_scores(syms, prices.index, store, prices=prices, valuation=valuation)
+    scores = build_pit_scores(syms, prices.index, store, prices=prices,
+                              valuation=valuation, sector_val=sector_val, industry=industry)
 
     holdings_fn = top_n_quarterly(n) if quarterly else top_n(n)
     res = run_backtest(prices, scores, StaticUniverse(syms), holdings_fn, capital=1_000_000.0)

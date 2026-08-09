@@ -155,23 +155,30 @@ def compute_potential_score(
     *,
     pe: float | None = None,
     pb: float | None = None,
+    valuation_score: float | None = None,
 ) -> float:
     """Composite potential score (0.0 to 1.0).
 
-    Without a valuation input (pe/pb both None — e.g. the dashboard before prices
-    are wired), the original 4-pillar weighting is used unchanged. With price, a
-    5th *valuation* pillar is added (quality CHEAP, not just quality) and the
-    weights are rebalanced: EPS 30 / ROE 20 / D-E 20 / promoter 10 / value 20."""
+    Valuation pillar precedence: an explicit `valuation_score` (0..1, e.g. a
+    sector-relative cheapness rank) wins; else absolute `pe`/`pb` via
+    score_valuation; else no valuation. Without any valuation input (e.g. the
+    dashboard before prices are wired) the original 4-pillar weighting is used
+    unchanged. With one, a 5th pillar is added and weights rebalance to
+    EPS 30 / ROE 20 / D-E 20 / promoter 10 / value 20."""
     eps_s = score_eps_trajectory(t)
     roe_s = score_quality_roe(t.latest_roe)
     d2e_s = score_leverage_d2e(t.latest_debt_to_equity)
     prom_s = score_promoter_holding(promoter_holding_pct, promoter_trend_pct)
 
-    if pe is None and pb is None:
+    val_s = valuation_score
+    if val_s is None and (pe is not None or pb is not None):
+        val_s = score_valuation(pe, pb)
+
+    if val_s is None:
         # 4-Pillar: EPS 35%, ROE 25%, D/E 25%, Promoter 15%
         score = 0.35 * eps_s + 0.25 * roe_s + 0.25 * d2e_s + 0.15 * prom_s
     else:
-        val_s = score_valuation(pe, pb)
+        val_s = max(0.0, min(1.0, val_s))
         # 5-Pillar: EPS 30%, ROE 20%, D/E 20%, Promoter 10%, Valuation 20%
         score = 0.30 * eps_s + 0.20 * roe_s + 0.20 * d2e_s + 0.10 * prom_s + 0.20 * val_s
     return max(0.0, min(1.0, score))
