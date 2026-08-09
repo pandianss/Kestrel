@@ -515,7 +515,7 @@ code {{ background:#151c28; padding:1px 5px; border-radius:4px; font-size:12px; 
    var m=document.getElementById('ctlmsg'); if(m) m.textContent='working…';
    fetch(url,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:body?JSON.stringify(body):null}})
      .then(r=>r.json()).then(d=>{{ if(m) m.textContent=(d.ok?'✓ ':'✗ ')+(d.message||d.error||''); }})
-     .catch(e=>{{ if(m) m.textContent='✗ '+e; }});
+     .catch(e=>{{ if(m) m.textContent='✗ Cannot reach the local server. Open this dashboard at http://localhost:8000 in your browser — the controls only work on the live served page, not a saved/preview copy.'; }});
  }}
  function mint(){{ var r=document.getElementById('redir').value.trim();
    var m=document.getElementById('ctlmsg');
