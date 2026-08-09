@@ -184,6 +184,43 @@ def compute_potential_score(
     return max(0.0, min(1.0, score))
 
 
+def sector_relative_valuation(
+    yields: dict[str, tuple[float | None, float | None]],
+    industry: dict[str, str],
+) -> dict[str, float]:
+    """Within-industry cheapness rank — the valuation method the backtest validated
+    (IR 0.43 -> 0.49 over absolute P/E). `yields[symbol] = (earnings_yield,
+    book_yield)` where earnings_yield = EPS/price and book_yield = BVPS/price
+    (higher = cheaper). Returns symbol -> valuation score 0..1, the average
+    percentile of the two yields among the symbol's industry peers. Symbols with
+    no industry or no usable yield are omitted (caller treats missing as no
+    valuation pillar, i.e. 4-pillar)."""
+    from collections import defaultdict
+    groups: dict[str, list[str]] = defaultdict(list)
+    for s in yields:
+        ind = industry.get(s)
+        if ind:
+            groups[ind].append(s)
+
+    def pct_rank(vals: list[float], v: float) -> float:
+        return sum(1 for x in vals if x <= v) / len(vals)
+
+    out: dict[str, float] = {}
+    for syms in groups.values():
+        ey_vals = [yields[s][0] for s in syms if yields[s][0] is not None]
+        by_vals = [yields[s][1] for s in syms if yields[s][1] is not None]
+        for s in syms:
+            ey, by = yields[s]
+            parts = []
+            if ey is not None and ey_vals:
+                parts.append(pct_rank(ey_vals, ey))
+            if by is not None and by_vals:
+                parts.append(pct_rank(by_vals, by))
+            if parts:
+                out[s] = sum(parts) / len(parts)
+    return out
+
+
 def assign_basket(score: float) -> tuple[str, str]:
     """Assign instrument to a factor basket based on its composite score."""
     if score >= 0.70:
@@ -197,16 +234,21 @@ def assign_basket(score: float) -> tuple[str, str]:
 
 def rank_and_group_baskets(
     trends: list[Trend],
-    relations_store=None
+    relations_store=None,
+    valuation_scores: dict[str, float] | None = None,
 ) -> dict[str, list[ScoredInstrument]]:
-    """Rank all trends from most potential to least, and group them into baskets."""
+    """Rank all trends from most potential to least, and group them into baskets.
+    `valuation_scores` (symbol -> 0..1 within-industry cheapness) activates the
+    5th valuation pillar per the backtested config; names absent from it fall back
+    to the 4-pillar score."""
     from datetime import date
+    valuation_scores = valuation_scores or {}
     scored: list[ScoredInstrument] = []
-    
+
     for t in trends:
         promoter_holding = None
         promoter_trend = None
-        
+
         if relations_store is not None:
             try:
                 rels = relations_store.relations_asof(t.symbol, date.today())
@@ -218,7 +260,10 @@ def rank_and_group_baskets(
             except Exception:
                 pass
 
-        score = compute_potential_score(t, promoter_holding, promoter_trend)
+        score = compute_potential_score(
+            t, promoter_holding, promoter_trend,
+            valuation_score=valuation_scores.get(t.symbol),
+        )
         b_name, b_badge = assign_basket(score)
         scored.append(
             ScoredInstrument(
