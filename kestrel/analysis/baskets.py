@@ -37,10 +37,12 @@ class ScoredInstrument:
     yoy_growth: float | None
     promoter_holding_pct: float | None = None
     promoter_trend_pct: float | None = None
+    valuation_score: float | None = None   # None => 4-pillar (no price/industry, i.e. not tradeable)
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d["potential_pct"] = f"{self.potential_score * 100:.1f}%"
+        d["tradeable"] = self.valuation_score is not None   # liquid + priced (NIFTY 500)
         d["roe_pct"] = f"{self.latest_roe * 100:.1f}%" if self.latest_roe is not None else "—"
         d["d2e_ratio"] = f"{self.latest_d2e:.2f}" if self.latest_d2e is not None else "—"
         d["promoter_pct"] = f"{self.promoter_holding_pct * 100:.1f}%" if self.promoter_holding_pct is not None else "—"
@@ -281,6 +283,7 @@ def rank_and_group_baskets(
                 yoy_growth=t.yoy_growth,
                 promoter_holding_pct=promoter_holding,
                 promoter_trend_pct=promoter_trend,
+                valuation_score=valuation_scores.get(t.symbol),
             )
         )
 

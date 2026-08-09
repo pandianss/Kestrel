@@ -675,9 +675,16 @@ def _relations_section(state: dict) -> str:
 def _basket_rank_chart(state: dict) -> str:
     """Compact score bars make the top of the current research ranking legible."""
     baskets = state.get("baskets") or {}
-    items = [item for basket in baskets.values() for item in basket]
-    if not items:
+    all_items = [item for basket in baskets.values() for item in basket]
+    if not all_items:
         return ""
+
+    # Gate to the TRADEABLE universe: names with the valuation pillar active
+    # (liquid + priced, i.e. NIFTY 500) — the same set the paper book trades and
+    # the backtest validated. Non-tradeable names are scored on 4 pillars only and
+    # can float to the top on thin data, so they don't belong in the headline list.
+    items = [i for i in all_items if i.get("tradeable")] or all_items
+    gated = bool([i for i in all_items if i.get("tradeable")])
 
     def score(item: dict) -> float:
         try:
@@ -708,7 +715,7 @@ def _basket_rank_chart(state: dict) -> str:
     <figure class="chart-figure ranking-chart">
       <div class="rank-axis" aria-hidden="true"><span>0</span><span>50</span><span>100</span></div>
       <ol class="rank-list">{"".join(rows)}</ol>
-      <figcaption>Top {len(ranked)} by composite research score. ROE is available for {quality_available:,}/{len(items):,}; debt-to-equity for {leverage_available:,}/{len(items):,}. This is a research ranking, not an order signal.</figcaption>
+      <figcaption>Top {len(ranked)} by composite research score{', tradeable (NIFTY 500, 5-pillar with valuation) — the set the paper book trades' if gated else ''}. ROE available for {quality_available:,}/{len(items):,}; D/E for {leverage_available:,}/{len(items):,}. Research ranking, not an order signal.</figcaption>
     </figure>'''
 
 
@@ -731,6 +738,7 @@ def _baskets_section(state: dict) -> str:
             direction = item.get("direction", "flat")
             roe_str = item.get("roe_pct", "—")
             d2e_str = item.get("d2e_ratio", "—")
+            promoter_str = item.get("promoter_pct", "—")
             
             slope = item.get("slope")
             slope_str = f"{slope:+.2f}" if slope is not None else "—"
@@ -744,6 +752,7 @@ def _baskets_section(state: dict) -> str:
               <td style="padding: 8px 6px; color: {dir_color}; font-size: 13px;">{direction.upper()} ({slope_str})</td>
               <td style="padding: 8px 6px; text-align: right; font-size: 13px;">{roe_str}</td>
               <td style="padding: 8px 6px; text-align: right; font-size: 13px;">{d2e_str}</td>
+              <td style="padding: 8px 6px; text-align: right; font-size: 13px;">{promoter_str}</td>
             </tr>
             ''')
             
@@ -762,6 +771,7 @@ def _baskets_section(state: dict) -> str:
                 <th style="text-align: left; padding: 6px;">EPS Direction (Slope)</th>
                 <th style="text-align: right; padding: 6px;">ROE</th>
                 <th style="text-align: right; padding: 6px;">Debt/Equity</th>
+                <th style="text-align: right; padding: 6px;">Promoter %</th>
               </tr>
             </thead>
             <tbody>

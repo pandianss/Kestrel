@@ -109,14 +109,45 @@ def open_book(capital: float, n: int) -> dict:
 
     invested = round(sum(p["entry_notional"] for p in positions), 2)
     costs = round(sum(p["entry_cost"] for p in positions), 2)
+    now = datetime.now().isoformat(timespec="seconds")
     return {
-        "created": datetime.now().isoformat(timespec="seconds"),
+        "created": now,
+        "inception_capital": capital, "inception_date": now, "rebalances": 0,
+        "history": [],
         "capital": capital, "n_target": n, "n_filled": len(positions),
         "price_source": "yahoo .NS latest close (paper)",
         "universe_gate": "NIFTY 500 (2026-07-25)",
         "invested": invested, "entry_costs": costs, "cash": cash,
         "positions": positions,
     }
+
+
+def rebalance_book(n: int) -> dict:
+    """Quarterly rebalance (the backtested cadence): mark the existing book to
+    market, liquidate to cash net of sell costs, and re-open the top-N at current
+    prices — carrying equity forward so the paper book is a real track record,
+    not a fresh Rs 1L each quarter. Sell+buy costs on the full turnover are charged
+    (conservative: names that stay are still round-tripped)."""
+    old = json.loads(PORTFOLIO.read_text(encoding="utf-8"))
+    sell_frac = one_way_cost_fraction("sell", regime_on(date.today()))
+    held_value = liq_costs = 0.0
+    for p in old["positions"]:
+        px = last_close(p["symbol"])
+        if px is None:
+            px = p["entry_price"]        # can't price -> assume flat at entry
+        val = p["qty"] * px
+        held_value += val
+        liq_costs += val * sell_frac
+    equity = round(held_value + old["cash"], 2)                 # mark-to-market equity
+    carried = round(equity - liq_costs, 2)                      # cash after liquidation
+    new = open_book(carried, n)
+    new["inception_capital"] = old.get("inception_capital", old.get("capital"))
+    new["inception_date"] = old.get("inception_date", old.get("created"))
+    new["rebalances"] = old.get("rebalances", 0) + 1
+    new["history"] = old.get("history", []) + [{
+        "date": old.get("created"), "equity": equity, "liquidation_costs": round(liq_costs, 2),
+    }]
+    return new
 
 
 def _print_book(bk: dict, marks: dict | None = None) -> None:
@@ -166,15 +197,30 @@ def main() -> int:
         _print_book(bk, marks)
         return 0
 
-    capital = float(_arg("--capital", "100000") or 100000)
     n = int(_arg("--n", "10") or 10)
+    if "--rebalance" in sys.argv:
+        if not PORTFOLIO.exists():
+            print("No saved paper book to rebalance. Open one first (no flags).")
+            return 1
+        print(f"Quarterly rebalance: marking to market and re-selecting top {n}...\n")
+        bk = rebalance_book(n)
+        PORTFOLIO.write_text(json.dumps(bk, indent=2), encoding="utf-8")
+        _print_book(bk)
+        incep = bk.get("inception_capital", bk["capital"])
+        equity_now = bk["invested"] + bk["cash"]
+        print(f"\n  rebalance #{bk.get('rebalances', 0)}  |  since inception Rs {incep:,.0f} "
+              f"→ ~Rs {equity_now:,.0f} ({100*(equity_now-incep)/incep:+.1f}%)")
+        print(f"Saved → {PORTFOLIO}.")
+        return 0
+
+    capital = float(_arg("--capital", "100000") or 100000)
     print(f"Opening a paper book: Rs {capital:,.0f} across up to {n} names "
           f"(fetching latest prices)...\n")
     bk = open_book(capital, n)
     PORTFOLIO.parent.mkdir(parents=True, exist_ok=True)
     PORTFOLIO.write_text(json.dumps(bk, indent=2), encoding="utf-8")
     _print_book(bk)
-    print(f"\nSaved → {PORTFOLIO}.  Mark to market later: python scripts/mock_trade.py --status")
+    print(f"\nSaved → {PORTFOLIO}.  Rebalance quarterly: python scripts/mock_trade.py --rebalance")
     return 0
 
 
