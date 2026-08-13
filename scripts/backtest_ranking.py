@@ -284,6 +284,21 @@ def main() -> int:
     gross = res.gross.dropna()
     bench = prices.pct_change().mean(axis=1).reindex(net.index)   # equal-weight universe
 
+    if "--regime" in sys.argv:
+        # Market-regime filter: hold the book only when the market (equal-weight
+        # universe proxy) is above its 10-month moving average; else sit in cash.
+        # PIT-clean — the MA uses only past prices, and we act on the PRIOR month's
+        # signal. A ~0.2% round-trip cost is charged each time we toggle in/out.
+        proxy = (1 + bench.fillna(0)).cumprod()
+        ma = proxy.rolling(10, min_periods=3).mean()
+        on = (proxy >= ma).fillna(True)
+        on_prev = on.shift(1)
+        on_prev.iloc[0] = True
+        on_prev = on_prev.fillna(True)
+        toggled = on_prev.ne(on_prev.shift(1)).fillna(False)
+        net = net.where(on_prev, 0.0) - toggled.astype(float) * 0.002
+        cfg += ", regime-filtered"
+
     def cum(r):
         return float((1 + r).prod() - 1)
 
